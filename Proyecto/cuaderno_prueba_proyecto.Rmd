@@ -1,0 +1,233 @@
+---
+title: "prueba_proyecto"
+output:
+  html_document: default
+  pdf_document: default
+date: "2022-10-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Cuaderno de prueba proyecto Series de tiempo univariadas
+
+```{r}
+library(readr)
+```
+
+Carga de datos desde repositorio
+```{r}
+# Datos acciones Bancolombia DIARIAS (01-01-2018 al 31-08-2022)
+url_1 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Datos%20hist%C3%B3ricos%20BIC%20diaria_3.csv'
+
+# Datos precipitación MENSUALES (01-2000 al 08-2022)
+url_2 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Datos%20precipitaci%C3%B3n%20mensual.csv'
+
+df_1 = read.csv(url_1, sep=";")
+df_2 = read.csv(url_2, sep=";")
+```
+
+Ajuste de fecha
+```{r}
+df_1$Fecha = as.Date(df_1$Fecha)
+df_2$Fecha = as.Date(df_2$Fecha)
+```
+
+## Serie de tiempo 1 ----- Acciones Bancolombia -----
+```{r}
+df_1.ts = ts(df_1$`Último`, frequency = 365, start=c(2018, 01, 02))
+plot.ts(df_1.ts, main = "Precio al cierre de acciones Bancolombia diario", xlab = "Tiempo", ylab = "Precio")
+```
+
+Diagrama de autocorrelación acciones Bancolombia
+```{r}
+## ----- Diagrama de autocorrelación acciones Bancolombia ----- ###
+
+acf(df_1['Último'], lag.max = NULL,
+    type = "correlation",
+    plot = TRUE,
+    na.action = na.fail,
+    main = "Autocorrelación acciones Bancolombia")
+```
+
+Diagrama de autocorrelación parcial acciones Bancolombia
+```{r}
+## ----- Diagrama de autocorrelación parcial acciones Bancolombia ----- ###
+
+pacf(df_1['Último'], lag.max = NULL,
+    plot = TRUE,
+    na.action = na.fail,
+    main = "Autocorrelación parcial acciones Bancolombia")
+```
+
+Regresión para determinar tendencia de acciones Bancolombia
+```{r}
+summary(fit_df_1 <- lm(df_1.ts~time(df_1.ts), na.action=NULL))
+```
+
+Gráfico con recta de tendencia acciones Bancolombia
+```{r}
+# Gráfico con recta de tendencia
+plot(df_1.ts, ylab="Precio accion") 
+abline(fit_df_1,col = "red") # Se añade la recta ajusta
+```
+
+Gráfico con tendencia eliminada de acciones Bancolombia
+```{r}
+###Eliminamos la tendencia con la predicción la recta
+ElimiTenddf_1.ts=df_1.ts-predict(fit_df_1)
+plot(ElimiTenddf_1.ts, ylab="Precio accion", main="Serie Bancolombia Sin tendencia")
+```
+
+Mapa de calor acciones Bancolombia
+```{r}
+TSstudio::ts_heatmap(ElimiTenddf_1.ts,title = "Mapa de Calor - acciones Bancolombia")
+```
+
+Se ajusta una tendencia que, visualmente, no es lineal. Se puede decir, entonces, que la tendencia es de tipo estocástica
+```{r}
+library(TSstudio)
+library(tidyverse)
+library(lubridate)
+library(timetk)
+library(tsibble)
+
+interactive <- FALSE
+#Para validar si la tendencia es lineal o no
+indice_cierre = df_1$Fecha
+df_cierre = data.frame(Fecha=indice_cierre,Precio_cierre=as.matrix(df_1$Último))
+str(df_cierre)
+tibble_cierre = tibble(df_cierre)
+duplicates(tibble_cierre, key = NULL, index = Fecha)##NO hay registros duplicados
+
+print(duplicates(tibble_cierre, key = NULL, index=Fecha))
+tsibble_cierre=tsibble(tibble_cierre,index=Fecha)
+
+tsibble_cierre
+
+tsibble_cierre%>%timetk::plot_time_series(Fecha, Precio_cierre, 
+                   .interactive = interactive,
+                   .plotly_slider = TRUE)
+
+tibble_cierre%>%mutate(Precio_cierre_ajus=smooth_vec(Precio_cierre,span = 0.75, degree = 2))
+
+tsibble_cierre%>%mutate(Precio_cierre_ajus=smooth_vec(Precio_cierre,span = 0.75, degree = 2))%>%
+  ggplot(aes(Fecha, Precio_cierre)) +
+    geom_line() +
+    geom_line(aes(y = Precio_cierre_ajus), color = "red")
+```
+Alternativa usando Descomposición por medio de filtros móviles
+```{r Decompose}
+cierre_decomp= decompose(df_1.ts)
+plot(cierre_decomp)
+cierre_decomp$trend
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# _____
+# Serie de tiempo 2 ----- Precipitaciones -----
+```{r}
+df_2.ts = ts(df_2$`Valor`, frequency = 12, start=c(2000, 1))
+plot.ts(df_2.ts, main = "Precipitación mensual", xlab = "Tiempo", ylab = "Pm")
+```
+
+
+```{r}
+## ----- Diagrama de autocorrelación precipitaciones ----- ###
+
+acf(df_2['Valor'], lag.max = NULL,
+    type = "correlation",
+    plot = TRUE,
+    na.action = na.fail,
+    main = "Autocorrelación precipitaciones")
+```
+
+
+```{r}
+## ----- Diagrama de autocorrelación parcial precipitaciones ----- ###
+
+pacf(df_2['Valor'], lag.max = NULL,
+    plot = TRUE,
+    na.action = na.fail,
+    main = "Autocorrelación parcial precipitaciones")
+```
+
+
+```{r}
+summary(fit_df_2 <- lm(df_2.ts~time(df_2.ts), na.action=NULL))
+```
+
+
+```{r}
+# Gráfico con recta de tendencia
+plot(df_2.ts, ylab="Pm") 
+abline(fit_df_2,col = "red") # Se añade la recta ajusta
+```
+
+
+```{r}
+###Eliminamos la tendencia con la predicción la recta
+ElimiTenddf_2.ts=df_2.ts-predict(fit_df_2)
+plot(ElimiTenddf_2.ts,main="Serie lluvias Sin tendencia", ylab="Pm")
+```
+
+
+```{r}
+library(TSstudio)
+ts_heatmap(ElimiTenddf_2.ts,title = "Mapa de Calor - Lluvias")
+```
+
+
+```{r}
+library(dplyr)
+```
+
+
+```{r}
+```
+
+
+
+
+
+
+
+
