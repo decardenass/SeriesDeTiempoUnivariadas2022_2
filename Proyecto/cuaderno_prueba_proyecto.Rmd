@@ -18,8 +18,8 @@ library(readr)
 
 Carga de datos desde repositorio
 ```{r}
-# Datos acciones Bancolombia DIARIAS (01-01-2018 al 31-08-2022)
-url_1 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Datos%20hist%C3%B3ricos%20BIC%20diaria_3.csv'
+# Datos acciones Bancolombia DIARIAS (01-01-2017 al 31-12-2021)
+url_1 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Bancolombia.csv'
 
 # Datos precipitación MENSUALES (01-2000 al 08-2022)
 url_2 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Datos%20precipitaci%C3%B3n%20mensual.csv'
