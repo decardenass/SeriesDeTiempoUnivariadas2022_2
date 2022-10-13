@@ -30,13 +30,13 @@ df_2 = read.csv(url_2, sep=";")
 
 Ajuste de fecha
 ```{r}
-df_1$Fecha = as.Date(df_1$Fecha)
+df_1$Fecha = rev(as.Date(df_1$Fecha))
 df_2$Fecha = as.Date(df_2$Fecha)
 ```
 
 ## Serie de tiempo 1 ----- Acciones Bancolombia -----
 ```{r}
-df_1.ts = ts(df_1$`Último`, frequency = 365, start=c(2018, 01, 02))
+df_1.ts = ts(rev(df_1$`Último`), frequency = 244, start=c(2017, 01, 02))
 plot.ts(df_1.ts, main = "Precio al cierre de acciones Bancolombia diario", xlab = "Tiempo", ylab = "Precio")
 ```
 
