@@ -79,6 +79,41 @@ abline(fit_lluvia,col = "red") # Se añade la recta ajusta
 ElimiTendlluvia.ts=lluvia.ts-predict(fit_lluvia)
 plot(ElimiTendlluvia.ts,main="Serie lluvias Sin tendencia", ylab="Pm")
 ```
+```{r}
+library(TSstudio)
+ts_heatmap(ElimiTendlluvia.ts,title = "Mapa de Calor - Lluvias")
+```
+```{r}
+library(TSstudio)
+library(tidyverse)
+library(lubridate)
+library(timetk)
+library(tsibble)
+
+interactive <- FALSE
+#Para validar si la tendencia es lineal o no
+fecha_pm = lluvia$Fecha
+df_pm = data.frame(Fecha=fecha_pm,valor_pm=as.matrix(lluvia$Valor))
+str(df_pm)
+tibble_cierre = tibble(df_pm)
+duplicates(tibble_cierre, key = NULL, index = Fecha)##NO hay registros duplicados
+
+print(duplicates(tibble_cierre, key = NULL, index=Fecha))
+tsibble_cierre=tsibble(tibble_cierre,index=Fecha)
+
+tsibble_cierre
+
+tsibble_cierre%>%timetk::plot_time_series(Fecha, valor_pm, 
+                   .interactive = interactive,
+                   .plotly_slider = TRUE)
+
+tibble_cierre%>%mutate(valor_pm_ajus=smooth_vec(valor_pm,span = 0.75, degree = 2))
+
+tsibble_cierre%>%mutate(valor_pm_ajus=smooth_vec(valor_pm,span = 0.75, degree = 2))%>%
+  ggplot(aes(Fecha, valor_pm)) +
+    geom_line() +
+    geom_line(aes(y = valor_pm_ajus), color = "red")
+```
 
 
 ```{r}
