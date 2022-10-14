@@ -119,6 +119,14 @@ Descomposición para la serie de luvia por medio de filtros de promedios móvile
 valor_pm_decompo=decompose(lluvia.ts)
 plot(valor_pm_decompo)
 ```
+```{r}
+library(forecast)
+   ggseasonplot(lluvia.ts,year.labels=TRUE,continuous=TRUE)
+   ggseasonplot(lluvia.ts,  polar = TRUE)
+   ts_seasonal(lluvia.ts, type = "all")
+   #ts_seasonal(lluvia.ts,type ="normal")
+   #ts_seasonal(lluvia.ts, type = "box")
+```
 
 ```{r}
 library(TSstudio)
