@@ -1,0 +1,124 @@
+---
+title: "prueba_proyecto"
+output:
+  html_document: default
+  pdf_document: default
+date: "2022-10-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Cuaderno de prueba proyecto Series de tiempo univariadas
+
+```{r}
+library(readr)
+```
+
+Carga de datos desde repositorio
+```{r}
+# Datos acciones Bancolombia DIARIAS (01-01-2017 al 31-12-2021)
+url_1 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Bancolombia.csv'
+
+# Datos precipitación MENSUALES (01-2000 al 08-2022)
+url_2 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Datos%20precipitaci%C3%B3n%20mensual.csv'
+
+banco = read.csv(url_1, sep=";")
+#df_2 = read.csv(url_2, sep=";")
+```
+
+Ajuste de fecha
+```{r}
+banco$Fecha = rev(as.Date(banco$Fecha))
+#df_2$Fecha = as.Date(df_2$Fecha)
+```
+
+## Serie de tiempo 1 ----- Acciones Bancolombia -----
+```{r}
+banco.ts = ts(rev(banco$`Último`), frequency = 244, start=c(2017, 01, 02))
+plot.ts(banco.ts, main = "Precio al cierre de acciones Bancolombia diario", xlab = "Tiempo", ylab = "Precio")
+```
+
+Diagrama de autocorrelación acciones Bancolombia
+```{r}
+## ----- Diagrama de autocorrelación acciones Bancolombia ----- ###
+
+acf(banco['Último'], lag.max = NULL,
+    type = "correlation",
+    plot = TRUE,
+    na.action = na.fail,
+    main = "Autocorrelación acciones Bancolombia")
+```
+
+Diagrama de autocorrelación parcial acciones Bancolombia
+```{r}
+## ----- Diagrama de autocorrelación parcial acciones Bancolombia ----- ###
+
+pacf(banco['Último'], lag.max = NULL,
+    plot = TRUE,
+    na.action = na.fail,
+    main = "Autocorrelación parcial acciones Bancolombia")
+```
+
+Regresión para determinar tendencia lineal de acciones Bancolombia
+```{r}
+summary(fit_banco <- lm(banco.ts~time(banco.ts), na.action=NULL))
+```
+
+Gráfico con recta de tendencia acciones Bancolombia
+```{r}
+# Gráfico con recta de tendencia
+plot(banco.ts, ylab="Precio accion") 
+abline(fit_banco,col = "red") # Se añade la recta ajusta
+```
+
+Gráfico con tendencia lineal eliminada de acciones Bancolombia
+```{r}
+###Eliminamos la tendencia con la predicción la recta
+ElimiTendbanco.ts=banco.ts-predict(fit_banco)
+plot(ElimiTendbanco.ts, ylab="Precio accion", main="Serie Bancolombia Sin tendencia")
+```
+Se ajusta una tendencia que, visualmente, no es lineal. Se puede decir, entonces, que la tendencia es de tipo estocástica
+```{r}
+library(TSstudio)
+library(tidyverse)
+library(lubridate)
+library(timetk)
+library(tsibble)
+
+interactive <- FALSE
+#Para validar si la tendencia es lineal o no
+indice_cierre = banco$Fecha
+df_cierre = data.frame(Fecha=indice_cierre,Precio_cierre=as.matrix(banco$Último))
+str(df_cierre)
+tibble_cierre = tibble(df_cierre)
+duplicates(tibble_cierre, key = NULL, index = Fecha)##NO hay registros duplicados
+
+print(duplicates(tibble_cierre, key = NULL, index=Fecha))
+tsibble_cierre=tsibble(tibble_cierre,index=Fecha)
+
+tsibble_cierre
+
+tsibble_cierre%>%timetk::plot_time_series(Fecha, Precio_cierre, 
+                   .interactive = interactive,
+                   .plotly_slider = TRUE)
+
+tibble_cierre%>%mutate(Precio_cierre_ajus=smooth_vec(Precio_cierre,span = 0.75, degree = 2))
+
+tsibble_cierre%>%mutate(Precio_cierre_ajus=smooth_vec(Precio_cierre,span = 0.75, degree = 2))%>%
+  ggplot(aes(Fecha, Precio_cierre)) +
+    geom_line() +
+    geom_line(aes(y = Precio_cierre_ajus), color = "red")
+```
+Alternativa usando Descomposición por medio de filtros móviles
+```{r Decompose}
+cierre_decomp= decompose(banco.ts)
+plot(cierre_decomp)
+cierre_decomp$trend
+
+```
+Mapa de calor acciones Bancolombia
+```{r}
+#TSstudio::ts_heatmap(ElimiTendbanco.ts,title = "Mapa de Calor - acciones Bancolombia")
+```

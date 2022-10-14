@@ -1,0 +1,87 @@
+---
+title: "prueba_proyecto"
+output:
+  html_document: default
+  pdf_document: default
+date: "2022-10-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Cuaderno de prueba proyecto Series de tiempo univariadas
+
+```{r}
+library(readr)
+```
+
+Carga de datos desde repositorio
+```{r}
+# Datos acciones Bancolombia DIARIAS (01-01-2017 al 31-12-2021)
+url_1 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Bancolombia.csv'
+
+# Datos precipitación MENSUALES (01-2000 al 08-2022)
+url_2 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Datos%20precipitaci%C3%B3n%20mensual.csv'
+
+#df_1 = read.csv(url_1, sep=";")
+lluvia = read.csv(url_2, sep=";")
+```
+
+Ajuste de fecha
+```{r}
+#df_1$Fecha = rev(as.Date(df_1$Fecha))
+lluvia$Fecha = as.Date(lluvia$Fecha)
+```
+# _____
+# Serie de tiempo 2 ----- Precipitaciones -----
+```{r}
+lluvia.ts = ts(lluvia$`Valor`, frequency = 12, start=c(2000, 1))
+plot.ts(lluvia.ts, main = "Precipitación mensual", xlab = "Tiempo", ylab = "Pm")
+```
+
+
+```{r}
+## ----- Diagrama de autocorrelación precipitaciones ----- ###
+
+acf(lluvia['Valor'], lag.max = NULL,
+    type = "correlation",
+    plot = TRUE,
+    na.action = na.fail,
+    main = "Autocorrelación precipitaciones")
+```
+
+
+```{r}
+## ----- Diagrama de autocorrelación parcial precipitaciones ----- ###
+
+pacf(lluvia['Valor'], lag.max = NULL,
+    plot = TRUE,
+    na.action = na.fail,
+    main = "Autocorrelación parcial precipitaciones")
+```
+
+
+```{r}
+summary(fit_lluvia <- lm(lluvia.ts~time(lluvia.ts), na.action=NULL))
+```
+
+
+```{r}
+# Gráfico con recta de tendencia
+plot(lluvia.ts, ylab="Pm") 
+abline(fit_lluvia,col = "red") # Se añade la recta ajusta
+```
+
+
+```{r}
+###Eliminamos la tendencia con la predicción la recta
+ElimiTendlluvia.ts=lluvia.ts-predict(fit_lluvia)
+plot(ElimiTendlluvia.ts,main="Serie lluvias Sin tendencia", ylab="Pm")
+```
+
+
+```{r}
+library(TSstudio)
+ts_heatmap(ElimiTendlluvia.ts,title = "Mapa de Calor - Lluvias")
+```
