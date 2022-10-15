@@ -19,7 +19,7 @@ library(readr)
 Carga de datos desde repositorio
 ```{r}
 # Datos acciones Bancolombia DIARIAS (01-01-2017 al 31-12-2021)
-url_1 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Bancolombia.csv'
+url_1 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Bancolombia_2014_2019.csv'
 
 # Datos precipitación MENSUALES (01-2000 al 08-2022)
 url_2 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Datos%20precipitaci%C3%B3n%20mensual.csv'
@@ -36,7 +36,7 @@ banco$Fecha = rev(as.Date(banco$Fecha))
 
 ## Serie de tiempo 1 ----- Acciones Bancolombia -----
 ```{r}
-banco.ts = ts(rev(banco$`Último`), frequency = 244, start=c(2017, 01, 02))
+banco.ts = ts(rev(banco$`Último`), frequency = 244, start=c(2014, 01, 02))
 plot.ts(banco.ts, main = "Precio al cierre de acciones Bancolombia diario", xlab = "Tiempo", ylab = "Precio")
 ```
 
