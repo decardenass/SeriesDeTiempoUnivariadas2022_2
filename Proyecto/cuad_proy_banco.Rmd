@@ -100,14 +100,14 @@ tsibble_cierre=tsibble(tibble_cierre,index=Fecha)
 
 tsibble_cierre
 
-tsibble_cierre%>%timetk::plot_time_series(Fecha, Precio_cierre, 
+tsibble_cierre%>%timetk::plot_time_series(rev(Fecha), Precio_cierre, 
                    .interactive = interactive,
                    .plotly_slider = TRUE)
 
 tibble_cierre%>%mutate(Precio_cierre_ajus=smooth_vec(Precio_cierre,span = 0.75, degree = 2))
 
 tsibble_cierre%>%mutate(Precio_cierre_ajus=smooth_vec(Precio_cierre,span = 0.75, degree = 2))%>%
-  ggplot(aes(Fecha, Precio_cierre)) +
+  ggplot(aes(rev(Fecha), Precio_cierre)) +
     geom_line() +
     geom_line(aes(y = Precio_cierre_ajus), color = "red")
 ```
