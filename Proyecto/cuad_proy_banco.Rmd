@@ -118,7 +118,14 @@ plot(cierre_decomp)
 cierre_decomp$trend
 
 ```
-Mapa de calor acciones Bancolombia
+
+Diferenciacion de la serie
 ```{r}
-#TSstudio::ts_heatmap(ElimiTendbanco.ts,title = "Mapa de Calor - acciones Bancolombia")
+#ndiffs(banco.ts) # Indica el numero de diferenciaciones requeridas para volver estacionaria la serie
+dx=diff(banco.ts) #Serie diferenciada
+par(mar = c(2,2,2,2))
+fit = lm(banco.ts~time(banco.ts), na.action=NULL) # Regresión sobre el tiempo
+par(mfrow=c(2,1))
+plot(resid(fit), type="l", main="Serie sin tendencia lineal") 
+plot(dx, type="l", main="Primera diferencia") 
 ```
