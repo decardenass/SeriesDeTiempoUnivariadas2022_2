@@ -22,7 +22,7 @@ Carga de datos desde repositorio
 url_1 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Bancolombia_2014_2019.csv'
 
 # Datos precipitación MENSUALES (01-2000 al 08-2022)
-url_2 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Datos%20precipitaci%C3%B3n%20mensual.csv'
+#url_2 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Datos%20precipitaci%C3%B3n%20mensual.csv'
 
 banco = read.csv(url_1, sep=";")
 #df_2 = read.csv(url_2, sep=";")
@@ -36,12 +36,19 @@ banco$Fecha = rev(as.Date(banco$Fecha))
 
 ## Serie de tiempo 1 ----- Acciones Bancolombia -----
 ```{r}
-banco.ts = ts(rev(banco$`Último`), frequency = 244, start=c(2014, 01, 02))
-plot.ts(banco.ts, main = "Precio al cierre de acciones Bancolombia diario", xlab = "Tiempo", ylab = "Precio")
+library(xts)
+library(TSstudio)
+library(modeltime)
+library(tsibble)
+library(tidymodels)
+banco.ts.xts= xts(x=rev(banco$Último), order.by = banco$Fecha)
+ts_info(banco.ts.xts)
+frequency(banco.ts.xts)
+plot(banco.ts.xts, main = "Precio al cierre de acciones Bancolombia diario", xlab = "Tiempo", ylab = "Precio")
 ```
 
 Diagrama de autocorrelación acciones Bancolombia
-```{r}
+```{r autocorrelación acciones Bancolombia}
 ## ----- Diagrama de autocorrelación acciones Bancolombia ----- ###
 
 acf(banco['Último'], lag.max = NULL,
@@ -52,14 +59,43 @@ acf(banco['Último'], lag.max = NULL,
 ```
 
 Diagrama de autocorrelación parcial acciones Bancolombia
-```{r}
+```{r autocorrelación parcial acciones Bancolombia}
 ## ----- Diagrama de autocorrelación parcial acciones Bancolombia ----- ###
 
 pacf(banco['Último'], lag.max = NULL,
     plot = TRUE,
     na.action = na.fail,
     main = "Autocorrelación parcial acciones Bancolombia")
+
 ```
+Ajustar varianza marginal 
+
+```{r}
+library(timetk)
+
+banco.ts.xts= xts(x=rev(banco$Último), order.by = banco$Fecha)
+lambda= auto_lambda(
+  banco.ts.xts,
+  method = "guerrero",
+  lambda_lower = -2,
+  lambda_upper = 2
+)
+
+lambda
+#timetk::box_cox_vec(banco.ts,lambda = lambda,silent = F)
+timetk::box_cox_vec(banco.ts.xts,lambda = lambda,silent = F)
+par(mfrow=c(1,1))
+plot(timetk::box_cox_vec(banco.ts.xts,lambda = lambda,silent = F),main = "Precio al cierre de acciones Bancolombia con varianza marginal ajustada", xlab = "Tiempo", ylab = "Precio")
+
+par(mfrow=c(1,2))
+plot(banco.ts.xts, main = "Precio al cierre de acciones Bancolombia sin varianza marginal ajustada", xlab = "Tiempo", ylab = "Precio")
+# lbanco.ts.xts <- log(banco.ts.xts)
+# plot(lbanco.ts.xts,main = "Log de Precio al cierre de acciones Bancolombia con varianza marginal ajustada", xlab = "Tiempo", ylab = "Precio")
+#También se puede dejar box_cox_vec(banco.ts, lambda = "auto", silent = FALSE) y obtendremos el mismo resultado
+```
+
+
+
 
 Regresión para determinar tendencia lineal de acciones Bancolombia
 ```{r}
@@ -89,7 +125,7 @@ library(tsibble)
 
 interactive <- FALSE
 #Para validar si la tendencia es lineal o no
-indice_cierre = banco$Fecha
+indice_cierre = rev(banco$Fecha)
 df_cierre = data.frame(Fecha=indice_cierre,Precio_cierre=as.matrix(banco$Último))
 str(df_cierre)
 tibble_cierre = tibble(df_cierre)
@@ -97,12 +133,6 @@ duplicates(tibble_cierre, key = NULL, index = Fecha)##NO hay registros duplicado
 
 print(duplicates(tibble_cierre, key = NULL, index=Fecha))
 tsibble_cierre=tsibble(tibble_cierre,index=Fecha)
-
-tsibble_cierre
-
-tsibble_cierre%>%timetk::plot_time_series(Fecha, Precio_cierre, 
-                   .interactive = interactive,
-                   .plotly_slider = TRUE)
 
 tibble_cierre%>%mutate(Precio_cierre_ajus=smooth_vec(Precio_cierre,span = 0.75, degree = 2))
 
@@ -122,3 +152,27 @@ Mapa de calor acciones Bancolombia
 ```{r}
 #TSstudio::ts_heatmap(ElimiTendbanco.ts,title = "Mapa de Calor - acciones Bancolombia")
 ```
+
+```{r Descomposición ETS}
+splits_banco_tbl=timetk::time_series_split(banco,date_var=Fecha,assess = 15,cumulative = TRUE)
+splits_banco_tbl%>% tk_time_series_cv_plan()%>%plot_time_series_cv_plan(Fecha,rev(Último))
+
+ets_banco<-modeltime::exp_smoothing(
+  error="additive",
+  trend="additive",
+  season="none"
+)%>%
+  set_engine("ets")%>%
+  fit(rev(Último) ~ Fecha,data=training(splits_banco_tbl))
+ # Modeltime ----
+ 
+modeltime_table(ets_banco) %>%
+  modeltime_calibrate(testing(splits_banco_tbl))%>%
+  modeltime_forecast(
+    new_data = testing(splits_banco_tbl),
+    actual_data = banco
+  )%>%
+  plot_modeltime_forecast(.conf_interval_fill = "lightblue")
+
+```
+
