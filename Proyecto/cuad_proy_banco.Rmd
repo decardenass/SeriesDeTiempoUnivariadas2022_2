@@ -66,32 +66,6 @@ pacf(banco['Último'], lag.max = NULL,
     plot = TRUE,
     na.action = na.fail,
     main = "Autocorrelación parcial acciones Bancolombia")
-
-```
-Ajustar varianza marginal 
-
-```{r}
-library(timetk)
-
-banco.ts.xts= xts(x=rev(banco$Último), order.by = banco$Fecha)
-lambda= auto_lambda(
-  banco.ts.xts,
-  method = "guerrero",
-  lambda_lower = -2,
-  lambda_upper = 2
-)
-
-lambda
-#timetk::box_cox_vec(banco.ts,lambda = lambda,silent = F)
-timetk::box_cox_vec(banco.ts.xts,lambda = lambda,silent = F)
-par(mfrow=c(1,1))
-plot(timetk::box_cox_vec(banco.ts.xts,lambda = lambda,silent = F),main = "Precio al cierre de acciones Bancolombia con varianza marginal ajustada", xlab = "Tiempo", ylab = "Precio")
-
-par(mfrow=c(1,2))
-plot(banco.ts.xts, main = "Precio al cierre de acciones Bancolombia sin varianza marginal ajustada", xlab = "Tiempo", ylab = "Precio")
-# lbanco.ts.xts <- log(banco.ts.xts)
-# plot(lbanco.ts.xts,main = "Log de Precio al cierre de acciones Bancolombia con varianza marginal ajustada", xlab = "Tiempo", ylab = "Precio")
-#También se puede dejar box_cox_vec(banco.ts, lambda = "auto", silent = FALSE) y obtendremos el mismo resultado
 ```
 
 
@@ -134,10 +108,16 @@ duplicates(tibble_cierre, key = NULL, index = Fecha)##NO hay registros duplicado
 print(duplicates(tibble_cierre, key = NULL, index=Fecha))
 tsibble_cierre=tsibble(tibble_cierre,index=Fecha)
 
+tsibble_cierre
+
+tsibble_cierre%>%timetk::plot_time_series(Fecha, Precio_cierre, 
+                   .interactive = interactive,
+                   .plotly_slider = TRUE)
+
 tibble_cierre%>%mutate(Precio_cierre_ajus=smooth_vec(Precio_cierre,span = 0.75, degree = 2))
 
 tsibble_cierre%>%mutate(Precio_cierre_ajus=smooth_vec(Precio_cierre,span = 0.75, degree = 2))%>%
-  ggplot(aes(Fecha, Precio_cierre)) +
+  ggplot(aes(rev(Fecha), Precio_cierre)) +
     geom_line() +
     geom_line(aes(y = Precio_cierre_ajus), color = "red")
 ```
@@ -148,9 +128,16 @@ plot(cierre_decomp)
 cierre_decomp$trend
 
 ```
-Mapa de calor acciones Bancolombia
+
+Diferenciacion de la serie
 ```{r}
-#TSstudio::ts_heatmap(ElimiTendbanco.ts,title = "Mapa de Calor - acciones Bancolombia")
+#ndiffs(banco.ts) # Indica el numero de diferenciaciones requeridas para volver estacionaria la serie
+dx=diff(banco.ts) #Serie diferenciada
+par(mar = c(2,2,2,2))
+fit = lm(banco.ts~time(banco.ts), na.action=NULL) # Regresión sobre el tiempo
+par(mfrow=c(2,1))
+plot(resid(fit), type="l", main="Serie sin tendencia lineal") 
+plot(dx, type="l", main="Primera diferencia") 
 ```
 
 ```{r Descomposición ETS}
