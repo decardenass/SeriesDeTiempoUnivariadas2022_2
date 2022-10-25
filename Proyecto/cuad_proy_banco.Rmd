@@ -73,20 +73,20 @@ pacf(banco['Último'], lag.max = NULL,
 
 Regresión para determinar tendencia lineal de acciones Bancolombia
 ```{r}
-summary(fit_banco <- lm(banco.ts~time(banco.ts), na.action=NULL))
+summary(fit_banco <- lm(banco.ts.xts~time(banco.ts.xts), na.action=NULL))
 ```
 
 Gráfico con recta de tendencia acciones Bancolombia
 ```{r}
 # Gráfico con recta de tendencia
-plot(banco.ts, ylab="Precio accion") 
+plot(banco.ts.xts, ylab="Precio accion") 
 abline(fit_banco,col = "red") # Se añade la recta ajusta
 ```
 
 Gráfico con tendencia lineal eliminada de acciones Bancolombia
 ```{r}
 ###Eliminamos la tendencia con la predicción la recta
-ElimiTendbanco.ts=banco.ts-predict(fit_banco)
+ElimiTendbanco.ts=banco.ts.xts-predict(fit_banco)
 plot(ElimiTendbanco.ts, ylab="Precio accion", main="Serie Bancolombia Sin tendencia")
 ```
 Se ajusta una tendencia que, visualmente, no es lineal. Se puede decir, entonces, que la tendencia es de tipo estocástica
@@ -122,7 +122,7 @@ tsibble_cierre%>%mutate(Precio_cierre_ajus=smooth_vec(Precio_cierre,span = 0.75,
     geom_line(aes(y = Precio_cierre_ajus), color = "red")
 ```
 Alternativa usando Descomposición por medio de filtros móviles
-```{r Decompose}
+```{r Decompose, eval=FALSE}
 cierre_decomp= decompose(banco.ts)
 plot(cierre_decomp)
 cierre_decomp$trend
@@ -130,11 +130,11 @@ cierre_decomp$trend
 ```
 
 Diferenciacion de la serie
-```{r}
+```{r Diferenciacion de la serie, eval=FALSE}
 #ndiffs(banco.ts) # Indica el numero de diferenciaciones requeridas para volver estacionaria la serie
-dx=diff(banco.ts) #Serie diferenciada
+dx=diff(banco.ts.xts) #Serie diferenciada
 par(mar = c(2,2,2,2))
-fit = lm(banco.ts~time(banco.ts), na.action=NULL) # Regresión sobre el tiempo
+fit = lm(banco.ts.xts~time(banco.ts.xts), na.action=NULL) # Regresión sobre el tiempo
 par(mfrow=c(2,1))
 plot(resid(fit), type="l", main="Serie sin tendencia lineal") 
 plot(dx, type="l", main="Primera diferencia") 
