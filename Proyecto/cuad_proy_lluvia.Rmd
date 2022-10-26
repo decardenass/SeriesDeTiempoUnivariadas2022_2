@@ -565,4 +565,212 @@ ajuste_mod_auto %>%
   labs(title= "Precipitacion promedio mensual",
        y="PM")
 ```
+  
+Modelos con variable Dummy y Fourier para la serie diferenciada una vez.
+```{r Dummy y Fourier serie diferenciada, echo=FALSE}
+dx.tb = timetk::tk_tbl(dx, preserve_index = TRUE, rename_index = "Fecha", timetk_idx = FALSE, silent = FALSE) #Convierte un objeto "ts" a un "tibble"
+dx.tb$Fecha=yearmonth(dx.tb$Fecha) #Convierte la fecha de objeto tibble a "mth"
+names(dx.tb) <- c("Fecha","Valor") #Renombra las columnas del objeto tibble
+dx.tsb <- as_tsibble(dx.tb, index=Fecha) #Convierte el objeto tibble a tsibble
 
+
+ajuste_dx <- dx.tsb%>%model(
+  `FourierK=1`=ARIMA(Valor~fourier(K=1)+pdq(0,0,0)+PDQ(0,0,0)),
+  `FourierK=2`=ARIMA(Valor~fourier(K=2)+pdq(0,0,0)+PDQ(0,0,0)),
+  `FourierK=3`=ARIMA(Valor~fourier(K=3)+pdq(0,0,0)+PDQ(0,0,0)),
+  `Dummy`=ARIMA(Valor~season()+pdq(0,0,0)+PDQ(0,0,0)),
+  `Zero`=ARIMA(Valor~0+pdq(24,0,0)+PDQ(0,0,0)),
+  `One`=ARIMA(Valor~1+pdq(24,0,0)+PDQ(0,0,0)))
+## Podemos agregar la opción fixed como una lista dentro de ARIMA, por ejemplo:
+###fixed = list(ar1 = 0.3, ma2 = 0).
+
+ajuste_dx
+glance(ajuste_dx)
+
+ajuste_dx
+glance(ajuste_dx) %>% arrange(AICc) %>% select(.model:BIC)
+
+ajuste_dx %>%
+  fabletools::forecast(h = "2 years") %>%
+  autoplot(dx.tb, level = 95) +
+  facet_wrap(vars(.model), ncol = 2) +
+  guides(colour = "none", fill = "none", level = "none") +
+  geom_label(
+    aes(x = yearmonth("2000 Jan"), y = 0.5,
+        label = paste0("AICc = ", format(AICc))),
+    data = glance(ajuste_dx)
+  ) +
+  labs(title= "Precipitacion promedio mensual diferenciada",
+       y="PM")
+```
+  
+Descomposicion STL  
+```{r STL, echo=FALSE}
+lluvia.tsb%>%gg_subseries(Valor,period=12)
+lluvia.tsb<-lluvia.tsb%>%mutate(diff_valor=difference(Valor))
+lluvia.tsb%>%gg_subseries(diff_valor,period=12)
+###La base de datos "elecequip" está en en el paquete fpp
+###Note que el operador %>% pipe permite concatenar múltiples dplyr operaciones
+###Manufacture of electrical equipment: computer, electronic and optical products
+
+#ME DA ERROR DE AQUI
+lluvia.ts %>%
+  stats::stl(t.window=13, s.window="periodic", robust=TRUE) %>%
+  autoplot()
+#HASTA AQUI
+
+
+###usando libro fpp3 
+
+lluvia.tsb %>%
+  model(
+    STL(Valor ~ trend(window = 13) +
+                   season(window = "periodic"),
+    robust = TRUE)) %>%
+  components() %>%
+  autoplot()
+```
+  
+Pronóstico basados en descomposición
+```{r Pronosticos Basados en Descomposicion, echo=FALSE}
+fit <- stl(lluvia.ts, t.window=13, s.window="periodic",
+           robust=TRUE)
+fit %>% seasadj() %>% naive() %>%
+  autoplot() + ylab("Nuevo índices ordenados.") +
+  ggtitle("Pronóstico Naive de la componente ajustada estacionalmente")
+###El método naive consiste en que la predicción es el último valor real de la serie(o el de una caminata aleatoria).
+#Ahora se re-estacionalizan los datos añadiendo 
+###Los pronósticos de la componente estacional.
+
+#ME DA ERROR DE AQUI
+#fit %>% forecast(method="naive") %>% autoplot() + ylab("New orders index")
+#HASTA AQUI
+
+###Note que la obtención de los pronósticos  es obtenida paso a paso.
+###Otra forma de hacerlo es usando la función stlf
+fcast1 <- stlf(lluvia.ts, method='naive')
+fcast <- stlf(lluvia.ts, method='ets')
+```
+  
+```{r Ajuste usando STL de feasts y model, echo=FALSE}
+###Ajuste usando STL de feasts y model
+
+fit_lluvia.tsb =lluvia.tsb%>%
+  model(stlf=decomposition_model(STL(Valor ~ trend(window = 13) +
+                   season(window = "periodic"),
+    robust = TRUE),NAIVE(season_adjust)))
+
+fit_lluvia.tsb%>%fabletools::forecast()%>%autoplot(lluvia.tsb)+ labs(y=" a",title=" b")  
+
+Pronostico<-fit_lluvia.tsb%>%fabletools::forecast()  
+Pronostico
+###Por defecto hace el pronóstico para el doble del ciclo estacional
+```
+  
+## Modeltime para ETS
+
+El flujo de trabajo en modeltime es como sigue:
+* Creación de una tabla con el(los) modelo(s) de modeltime. Es decir crear un tabla con el modelo ajustado usando los datos de entrenamiento.
+* Etapa de calibración. Cuando el modelo ajustado es aplicado a los datos de prueba. Aquí se buscan los mejores hiperparámetros para calibrar el modelo y que nos entregue el modelo con la mejor capaciadad predictiva. Los siguientes dos pasos hacen parte de la etapa de calibración:
+    * Pronóstico sobre los datos de prueba para compararlo con los reales.
+    * Con el modelo "calibrado" sobre el conjunto de entrenamiento procedemos a computar las medidas de precisión del pronóstico.
+    * Nota: Se pueden comparar las medidas de precisión sobre el conjunto de entrenamiento y  con las del conjunto de prueba.
+
+* Una vez escogido el modelo final(con los hiperparámetros o variables regresoras finales), el que posiblemente tenga mejor capacidad predictiva, debemos reajustar el modelo sobre todos los datos(re-estimar los parámetros con todos los datos: los de entrenamineto y de prueba)
+
+* Usar le modelo para hacer los pronósticos del futuro.
+
+
+
+* 
+
+```{r ets modeltime preparacion, echo=FALSE}
+
+library(dplyr)
+library(parsnip)
+library(rsample)
+library(timetk)
+library(modeltime)
+library(tsibble)
+library(tidymodels)
+###Creación del objeto sibble
+#lluvia.tb<-as_tibble(as_tsibble(lAirPass))
+#lluvia.tb$index=as.Date(lluvia.tb$index)
+#lluvia.tb=rename(lluvia.tb,Fecha=index,lluvia.ts=value)
+#lluvia.tb<-lluvia.tb%>%mutate(Airpass=exp(lluvia.ts))
+
+lluvia.tb
+###División en entrenamiento y prueba
+splits_lluvia.tb=timetk::time_series_split(lluvia.tb,date_var=Fecha,assess = 12,cumulative = TRUE)
+splits_lluvia.tb%>% tk_time_series_cv_plan()%>%
+  plot_time_series_cv_plan(Fecha,lluvia.ts)
+splits_lluvia.tb
+```
+  
+El caso que trataremos consiste en la estimación de los parámetros, smooth_level($\alpha$), smooth_trend($\beta$), smooth_seasonal($\gamma$) de un modelo de suavizamineto exponencial.
+```{r ets modeltime lluvia 1, echo=FALSE, eval=FALSE}
+#Ajuste del modelo suavizamineto exponencial
+?modeltime::exp_smoothing
+ets_lluvia.ts<-modeltime::exp_smoothing(
+  error="additive",
+  trend="additive",
+  season="additive"
+)%>%
+  set_engine("ets")%>%
+  fit(lluvia.ts ~ lluvia$Fecha,data=training(splits_lluvia.tb))
+ # Modeltime y creación de una tabla con el objeto ajustado sobre el conjunto de prueba y pronóstico sobre el conjunto de prueba.
+ 
+modeltime_table(ets_lluvia.ts) %>%
+  modeltime_calibrate(testing(splits_lluvia.tb))%>%
+  modeltime_forecast(
+    new_data = testing(splits_lluvia.tb),
+    actual_data = lluvia.tb
+  )%>%
+  plot_modeltime_forecast(.conf_interval_fill = "lightblue")
+
+
+##Se crea un objeto de pronóstico con los valores sobre el conjunto de prueba.
+pronostico_ets<-modeltime_table(ets_lluvia.ts) %>%
+  modeltime_calibrate(testing(splits_lluvia.tb))%>%
+  modeltime_forecast(
+    new_data = testing(splits_lluvia.tb),
+    actual_data = lluvia.tb
+  )
+    
+ pronostico_ets 
+ 
+ ####Los mismo que hicimos anteriormente pero ahora creando objetos
+ ## Modeltime
+ model_tbl<-modeltime_table(ets_lluvia.ts)
+## Calibración 
+  calibration_tbl<-model_tbl%>%
+    modeltime_calibrate(testing(splits_lluvia.tb))
+## Pronóstico sobre el conjunto de prueba
+  calibration_tbl%>%
+   modeltime_forecast(
+    new_data = testing(splits_lluvia.tb),
+    actual_data = lluvia.tb
+  ) 
+ ###Residuales 
+  residuales_ajuste<-model_tbl%>%
+  modeltime_calibrate(new_data=training(splits_lluvia.tb))%>%
+  modeltime_residuals()
+
+residuales_ajuste%>%plot_modeltime_residuals(
+  .type="timeplot",
+  .interactive = TRUE)
+  
+### Precisión de los pronósticos
+  calibration_tbl%>%
+    modeltime_accuracy()
+  
+  ## Re-ajuste y predicción de valores futuros
+re_ajuste<-calibration_tbl%>%
+  modeltime_refit(data=lluvia.tb)
+
+re_ajuste%>%
+  modeltime_forecast(h=12,
+                     actual_data = lluvia.tb
+                     )%>%
+  plot_modeltime_forecast()
+```
