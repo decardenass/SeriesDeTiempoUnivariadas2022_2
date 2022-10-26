@@ -1,0 +1,311 @@
+---
+title: "Serie precipitaciones mensuales"
+author:
+  - Valeria Hernandez
+  - Joan Lamprea
+  - Deivis Cardenas
+output:
+  html_document: default
+  pdf_document: default
+date: "2022-10-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Ajuste directorio de trabajo , include=FALSE}
+# Conocer y ajustar directorios de trabajo
+getwd()
+#setwd("C:/Absolutely_All/Work_Folder")
+#getwd()
+```
+
+```{r Borrado elementos espacio de trabajo , include=FALSE}
+# Borrar los objetos en el espacio de trabajo
+rm(list=ls())
+#ls()
+```
+
+```{r Librerias , include=FALSE}
+# Se cargan la librerias a utlizar
+library(aTSA)
+library(cumstats)
+library(dplyr)
+library(fable)
+library(feasts)
+library(FitAR)
+library(forecast)
+library(fpp)
+library(fpp3)
+library(lmtest)
+library(lubridate)
+library(readr)
+library(readxl)
+library(tidyverse)
+library(timetk)
+library(tsibble)
+library(TSstudio)
+library(uroot)
+library(xts)
+library(zoo)
+```
+
+# Cuaderno de prueba proyecto Series de tiempo univariadas
+  
+Carga de datos desde repositorio
+```{r Importacion de datos , include=FALSE}
+# Datos precipitación MENSUALES (01-2000 al 12-2021)
+url_2 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Datos%20precipitaci%C3%B3n%20mensual%20hasta%202021.csv'
+
+lluvia_ori = read.csv(url_2, sep=";")
+```
+
+```{r Datos de trabajo , include=FALSE}
+lluvia = lluvia_ori
+lluvia$Fecha = as.Date(lluvia$Fecha) #Ajuste de fecha
+
+#lluvia.df = as.data.frame(datos_ori)
+lluvia.df <- data.frame(Fecha = lluvia$Fecha, Valor = lluvia$Valor)
+
+lluvia.tb <- tibble(lluvia.df)
+lluvia.tb$Fecha <- yearmonth(lluvia.tb$Fecha)
+
+lluvia.tsb <- as_tsibble(lluvia.tb, index=Fecha)
+```
+  
+# Serie de tiempo 2 ----- Precipitaciones -----
+```{r Grafica serie de tiempo, echo=FALSE}
+lluvia.ts = ts(lluvia$`Valor`, frequency = 12, start=c(2000, 1))
+plot.ts(lluvia.ts, main = "Precipitacion mensual", xlab = "Tiempo", ylab = "Pm")
+```
+  
+Diagramas de autocorrelacion serie original
+```{r Diagramas de autocorrelacion serie de tiempo, echo=FALSE}
+## ----- Diagrama de autocorrelacion precipitaciones ----- ###
+acf(lluvia.ts, lag.max = 40, ci.type='ma', na.action = na.fail, main = "Autocorrelacion lluvia")
+
+## ----- Diagrama de autocorrelacion parcial precipitaciones ----- ###
+acf(lluvia.ts, lag.max = 30, type='partial', main = "Autocorrelacion parciales lluvia")
+```
+  
+
+```{r Ajuste de Varianza Marginal, echo=FALSE}
+FitAR::BoxCox(lluvia.ts)###Me entrega una gráfica
+tbc = timetk::box_cox_vec(lluvia.ts,lambda = 'auto',silent = F)
+
+lambda= auto_lambda(
+  lluvia.ts,
+  method = "guerrero",
+  lambda_lower = 0,
+  lambda_upper = 2
+)
+lambda
+
+par(mfrow=c(1,2))
+plot(lluvia.ts, main = "varianza marginal sin ajustar", xlab = "Tiempo", ylab = "")
+plot(timetk::box_cox_vec(lluvia.ts,lambda = lambda,silent = F),main = "varianza marginal ajustada", xlab = "Tiempo", ylab = "")
+
+forecast::BoxCox.lambda(timetk::box_cox_vec(lluvia.ts,
+                        lambda = lambda,silent = F), 
+                        method = "guerrero", lower = -1, upper = 2) #1.012277 Indica que la varianza marginal ha sido estabilizada
+```
+  
+Estimación y eliminación de tendencia lineal
+```{r Estimación y eliminación de tendencia lineal, echo=FALSE}
+summary(fit_lluvia <- lm(lluvia.ts~time(lluvia.ts), na.action=NULL))
+
+# Gráfico con recta de tendencia
+plot(lluvia.ts, ylab="Pm") 
+abline(fit_lluvia,col = "red") # Se añade la recta ajusta
+
+###Eliminamos la tendencia con la predicción la recta
+ElimiTendlluvia.ts=lluvia.ts-predict(fit_lluvia)
+plot(ElimiTendlluvia.ts, main="Serie lluvias sin tendencia lineal", ylab="Pm")
+```
+  
+Estimación de la tendencia no lineal
+```{r Estimación de tendencia no lineal, echo=FALSE}
+interactive <- FALSE
+#Para validar si la tendencia es lineal o no
+fecha_pm = lluvia$Fecha
+df_pm = data.frame(Fecha=fecha_pm,valor_pm=as.matrix(lluvia$Valor))
+str(df_pm)
+tibble_pm = tibble(df_pm)
+duplicates(tibble_pm, key = NULL, index = Fecha)##NO hay registros duplicados
+
+print(duplicates(tibble_pm, key = NULL, index=Fecha))
+tsibble_pm=tsibble(tibble_pm,index=Fecha)
+
+tsibble_pm
+
+tsibble_pm%>%timetk::plot_time_series(Fecha, valor_pm, 
+                   .interactive = interactive,
+                   .plotly_slider = TRUE)
+
+tibble_pm%>%mutate(valor_pm_ajus=smooth_vec(valor_pm,span = 0.75, degree = 2))
+
+tsibble_pm%>%mutate(valor_pm_ajus=smooth_vec(valor_pm,span = 0.75, degree = 2))%>%
+  ggplot(aes(Fecha, valor_pm)) +
+    geom_line() +
+    geom_line(aes(y = valor_pm_ajus), color = "red")
+```
+  
+Analisis de estacionalidad de la serie original
+```{r Analisis de estacionalidad serie original, echo=FALSE}
+library(forecast)
+library(TSstudio)
+#library(plotly)
+
+monthplot(lluvia.ts, main = "Grafico de meses - Lluvias")
+ggseasonplot(lluvia.ts,year.labels=TRUE,continuous=TRUE)
+spectrum(lluvia.ts, log='no')
+ggseasonplot(lluvia.ts,  polar = TRUE)
+ts_seasonal(lluvia.ts, type = "box") # type ="normal", "box", "all"
+ts_heatmap(lluvia.ts,title = "Mapa de Calor - Lluvias")
+```
+  
+Se evidencia un comportamiento con estacionalidad de periodo 12.
+  
+Busqueda de raices unitarias ordinarias y estacionales
+```{r}
+adf.test(lluvia.ts,k=12)
+ndiffs(lluvia.ts) # Permite saber el número de raices unitarias ordinarias
+
+nsdiffs(lluvia.ts) # Permite saber el número de raices unitarias estacionales
+
+stats::ar(lluvia.ts)
+
+fUnitRoots::adfTest(lluvia.ts,lags=24)
+fUnitRoots::adfTest(lluvia.ts,lags=14,type='ct')
+```
+  
+De acuerdo a la estadística de Dickey-Fuller, la serie parece no requerir diferenciación ordinaria, pero si diferenciación estacional. Sin embargo se procede a diferenciar de forma ordinaria una vez (d=1) con el fin de volverla estacionaria.
+
+Diferenciacion ordinaria de la serie  
+```{r Diferenciacion ordinaria de la serie, echo=FALSE}
+dx=diff(lluvia.ts) #Serie diferenciada
+par(mar = c(2,2,2,2))
+fit = lm(lluvia.ts~time(lluvia.ts), na.action=NULL) # Regresión sobre el tiempo
+par(mfrow=c(2,1))
+plot(resid(fit), type="l", main="Serie sin tendencia lineal") 
+plot(dx, type="l", main="Primera diferencia ordinaria") 
+```
+  
+Se procede a evaluar la estacionariedad de la serie diferenciada de forma ordinaria.
+  
+Estacionalidad con serie diferenciada
+```{r Estacionalidad serie diferenciada, echo=FALSE}
+library(forecast)
+monthplot(dx, main = "Grafico de meses - ")
+ggseasonplot(dx,year.labels=TRUE,continuous=TRUE)
+spectrum(dx)
+abline(v=1, lty=2,col="red")
+ts_seasonal(dx, type = "box")
+ggseasonplot(dx,  polar = TRUE)
+ts_heatmap(dx,title = "Mapa de Calor - Serie diferenciada de forma ordinaria")
+```
+  
+Autocorrelaciones de la serie diferenciada ordinariamente.
+```{r Autocorrelaciones, echo=FALSE}
+####Identificación de los Órdenes Autoregresivos
+acf(dx,lag.max = 48,ci.type='ma', main="ACF serie diferenciada")  # Permite hallar "Q" y "q"
+pacf(dx,lag.max = 48, main="ACP serie diferenciada") # Permite hallar "P" y "p"
+```
+  
+Se observa que la media de los valores por mes varia menos al haberse diferenciado ordinarimanete la serie. Se procede entonces a diferenciar de manera estacional una vez.
+  
+Diferencia estacional de la serie
+```{r Diferenciacion estacional, echo=FALSE}
+dif_est_lluvia.ts=diff(dx,lag=12)
+#par(mfrow=c(2,1))
+plot(dx, main="Serie diferenciada ordinariamente")
+plot(dif_est_lluvia.ts, main="Serie diferenciada estacionariamente")
+monthplot(dif_est_lluvia.ts)
+#nsdiffs(dif_est_lluvia.ts)
+```
+  
+Se observa que al aplicar una diferencia estacional a la serie, el comportamiento del gráfico de meses es más acorde a una serie estacionaria.
+
+Se procede a graficar la ACF y la PACF para determinar los rezagos asocidos a los valores p,q,P y Q.
+  
+ACP y PACF de la serie diferenciada estacionalmente
+```{r ACF y PACF de la serie diferenciada estacionalmente, echo=FALSE}
+acf(dif_est_lluvia.ts,lag.max = 48,ci.type='ma', main="ACF serie diferenciada")  # Permite hallar "Q" y "q"
+pacf(dif_est_lluvia.ts,lag.max = 48, main="ACP serie diferenciada") # Permite hallar "P" y "p"
+```
+  
+De acuerdo al PACF de la serie diferenciada estacionalmente: "P=1" y "p=1, 2, 3, 4, 5, 6".
+De acuerdo al ACF de la serie diferenciada estacionalmente:  "Q=1" y "q=1, 2, 3".
+  
+Con los parametros observados, se procede a ajustar un modelo inicial y a evaluar sus respectivos residuales.
+```{r Modelo inicial y sus residuales, echo=FALSE}
+modelo_ini = Arima(lluvia.ts, c(3, 0, 2),seasonal = list(order = c(1, 1, 1), period = 12),lambda = 1.999959,fixed=c(NA,NA,NA,NA,NA,0,NA))
+coeftest(modelo_ini)
+
+###Analisis de residuales
+#x11()
+residuales_modelo_ini <- modelo_ini$residuals
+plot(residuales_modelo_ini)
+acf(residuales_modelo_ini,lag.max = 24)
+pacf(residuales_modelo_ini,lag.max = 24)
+#Test de autocorrelacion
+Box.test(residuales_modelo_ini, lag = (length(residuales_modelo_ini)/4), type = "Ljung-Box", fitdf = 5)
+######Análisis de Outliers
+#Test de normalidad
+jarque.bera.test(residuales_modelo_ini)
+#Chequeo resumen
+checkresiduals(modelo_ini)
+
+###Estaditicas CUSUM
+#res=residuales
+cum=cumsum(residuales_modelo_ini)/sd(residuales_modelo_ini)
+N=length(residuales_modelo_ini)
+cumq=cumsum(residuales_modelo_ini^2)/sum(residuales_modelo_ini^2)
+Af=0.948 ###Cuantil del 95% para la estad?stica cusum
+#n=(1/2)*(N-k)-1 # Para buscar en la tabla de CUSUMQ. k es el número de parametros del modelo
+co=0.10558####Valor del cuantil aproximado para cusumsq para n/2
+LS=Af*sqrt(N)+2*Af*c(1:length(residuales_modelo_ini))/sqrt(N)
+LI=-LS
+LQS=co+(1:length(residuales_modelo_ini))/N
+LQI=-co+(1:length(residuales_modelo_ini))/N
+#par(mfrow=c(2,1))
+plot(cum,type="l",ylim=c(min(LI),max(LS)),xlab="t",ylab="",main="CUSUM")
+lines(LS,type="S",col="red")
+lines(LI,type="S",col="red")
+#CUSUM Square
+plot(cumq,type="l",xlab="t",ylab="",main="CUSUMSQ")                      
+lines(LQS,type="S",col="red")                                                                           
+lines(LQI,type="S",col="red")
+```
+  
+Teniendo los parametros para el modelo ya ajustados, se procede a probar otras alternativas.
+Modelamiento del ciclo para la serie original.
+```{r ciclo unicamente, echo=FALSE}
+ajuste <- lluvia.tsb%>%model(
+  `FourierK=1`=ARIMA(Valor~fourier(K=1)+pdq(0,0,0)+PDQ(0,0,0)),
+  `FourierK=2`=ARIMA(Valor~fourier(K=2)+pdq(0,0,0)+PDQ(0,0,0)),
+  `FourierK=3`=ARIMA(Valor~fourier(K=3)+pdq(0,0,0)+PDQ(0,0,0)),
+  `Dummy`=ARIMA(Valor~season()+pdq(3,0,2)+PDQ(0,0,0))                              )
+## Podemos agregar la opción fixed como una lista dentro de ARIMA, por ejemplo:
+###fixed = list(ar1 = 0.3, ma2 = 0).
+
+ajuste
+glance(ajuste)
+
+ajuste
+glance(ajuste) %>% arrange(AICc) %>% select(.model:BIC)
+
+ajuste %>%
+  fabletools::forecast(h = "2 years") %>%
+  autoplot(lluvia.tb, level = 95) +
+  facet_wrap(vars(.model), ncol = 2) +
+  guides(colour = "none", fill = "none", level = "none") +
+  geom_label(
+    aes(x = yearmonth("2000 Jan"), y = 0.5,
+        label = paste0("AICc = ", format(AICc))),
+    data = glance(ajuste)
+  ) +
+  labs(title= "Precipitacion promedio mensual",
+       y="PM")
+```
