@@ -38,17 +38,22 @@ library(FitAR)
 library(forecast)
 library(fpp)
 library(fpp3)
+library(fUnitRoots)
 library(lmtest)
 library(lubridate)
 library(readr)
 library(readxl)
+library(sarima)
 library(tidyverse)
 library(timetk)
+library(tseries)
 library(tsibble)
 library(TSstudio)
+library(urca)
 library(uroot)
 library(xts)
 library(zoo)
+require("PolynomF")
 ```
 
 # Cuaderno de prueba proyecto Series de tiempo univariadas
@@ -176,56 +181,23 @@ nsdiffs(lluvia.ts) # Permite saber el número de raices unitarias estacionales
 
 stats::ar(lluvia.ts)
 
-fUnitRoots::adfTest(lluvia.ts,lags=24)
+fUnitRoots::adfTest(lluvia.ts,lags=14)
 fUnitRoots::adfTest(lluvia.ts,lags=14,type='ct')
 ```
   
-De acuerdo a la estadística de Dickey-Fuller, la serie parece no requerir diferenciación ordinaria, pero si diferenciación estacional. Sin embargo se procede a diferenciar de forma ordinaria una vez (d=1) con el fin de volverla estacionaria.
-
-Diferenciacion ordinaria de la serie  
-```{r Diferenciacion ordinaria de la serie, echo=FALSE}
-dx=diff(lluvia.ts) #Serie diferenciada
-par(mar = c(2,2,2,2))
-fit = lm(lluvia.ts~time(lluvia.ts), na.action=NULL) # Regresión sobre el tiempo
-par(mfrow=c(2,1))
-plot(resid(fit), type="l", main="Serie sin tendencia lineal") 
-plot(dx, type="l", main="Primera diferencia ordinaria") 
-```
+De acuerdo a la estadística de Dickey-Fuller, la serie parece ser estacionaria, es decir que no requiere diferenciación ordinaria, pero si diferenciación estacional, por lo cual se procede con dicha diferenciacion.
   
-Se procede a evaluar la estacionariedad de la serie diferenciada de forma ordinaria.
-  
-Estacionalidad con serie diferenciada
-```{r Estacionalidad serie diferenciada, echo=FALSE}
-library(forecast)
-monthplot(dx, main = "Grafico de meses - ")
-ggseasonplot(dx,year.labels=TRUE,continuous=TRUE)
-spectrum(dx)
-abline(v=1, lty=2,col="red")
-ts_seasonal(dx, type = "box")
-ggseasonplot(dx,  polar = TRUE)
-ts_heatmap(dx,title = "Mapa de Calor - Serie diferenciada de forma ordinaria")
-```
-  
-Autocorrelaciones de la serie diferenciada ordinariamente.
-```{r Autocorrelaciones, echo=FALSE}
-####Identificación de los Órdenes Autoregresivos
-acf(dx,lag.max = 48,ci.type='ma', main="ACF serie diferenciada")  # Permite hallar "Q" y "q"
-pacf(dx,lag.max = 48, main="ACP serie diferenciada") # Permite hallar "P" y "p"
-```
-  
-Se observa que la media de los valores por mes varia menos al haberse diferenciado ordinarimanete la serie. Se procede entonces a diferenciar de manera estacional una vez.
-  
-Diferencia estacional de la serie
-```{r Diferenciacion estacional, echo=FALSE}
-dif_est_lluvia.ts=diff(dx,lag=12)
+Diferencia estacional de la serie original
+```{r Diferenciacion estacional serie origianl, echo=FALSE}
+dif_est_lluvia.ts=diff(lluvia.ts, lag=12, differences = 1)
 #par(mfrow=c(2,1))
-plot(dx, main="Serie diferenciada ordinariamente")
-plot(dif_est_lluvia.ts, main="Serie diferenciada estacionariamente")
+plot(diff(lluvia.ts), main="Serie diferenciada ordinariamente")
+plot(dif_est_lluvia.ts, main="Serie diferenciada estacionalmente")
 monthplot(dif_est_lluvia.ts)
-#nsdiffs(dif_est_lluvia.ts)
+nsdiffs(dif_est_lluvia.ts)
 ```
-  
-Se observa que al aplicar una diferencia estacional a la serie, el comportamiento del gráfico de meses es más acorde a una serie estacionaria.
+    
+Se observa que al aplicar una diferencia estacional a la serie, el comportamiento del gráfico de meses es acorde a una serie estacionaria.
 
 Se procede a graficar la ACF y la PACF para determinar los rezagos asocidos a los valores p,q,P y Q.
   
@@ -235,13 +207,16 @@ acf(dif_est_lluvia.ts,lag.max = 48,ci.type='ma', main="ACF serie diferenciada") 
 pacf(dif_est_lluvia.ts,lag.max = 48, main="ACP serie diferenciada") # Permite hallar "P" y "p"
 ```
   
-De acuerdo al PACF de la serie diferenciada estacionalmente: "P=1" y "p=1, 2, 3, 4, 5, 6".
-De acuerdo al ACF de la serie diferenciada estacionalmente:  "Q=1" y "q=1, 2, 3".
+De acuerdo al PACF de la serie diferenciada estacionalmente: "P=1" y "p=2".
+De acuerdo al ACF de la serie diferenciada estacionalmente:  "Q=1" y "q=2".
   
 Con los parametros observados, se procede a ajustar un modelo inicial y a evaluar sus respectivos residuales.
 ```{r Modelo inicial y sus residuales, echo=FALSE}
-modelo_ini = Arima(lluvia.ts, c(3, 0, 2),seasonal = list(order = c(1, 1, 1), period = 12),lambda = 1.999959,fixed=c(NA,NA,NA,NA,NA,0,NA))
+p_min=2
+q_min=2
+modelo_ini = Arima(lluvia.ts, c(p_min, 0, q_min), seasonal = list(order = c(1, 1, 1), period = 12),lambda = NULL, fixed=c(NA,NA,NA,NA,NA,NA))
 coeftest(modelo_ini)
+summary(modelo_ini)
 
 ###Analisis de residuales
 #x11()
@@ -250,7 +225,7 @@ plot(residuales_modelo_ini)
 acf(residuales_modelo_ini,lag.max = 24)
 pacf(residuales_modelo_ini,lag.max = 24)
 #Test de autocorrelacion
-Box.test(residuales_modelo_ini, lag = (length(residuales_modelo_ini)/4), type = "Ljung-Box", fitdf = 5)
+Box.test(residuales_modelo_ini, lag = (length(residuales_modelo_ini)/4), type = "Ljung-Box", fitdf = p_min+q_min)
 ######Análisis de Outliers
 #Test de normalidad
 jarque.bera.test(residuales_modelo_ini)
@@ -263,8 +238,8 @@ cum=cumsum(residuales_modelo_ini)/sd(residuales_modelo_ini)
 N=length(residuales_modelo_ini)
 cumq=cumsum(residuales_modelo_ini^2)/sum(residuales_modelo_ini^2)
 Af=0.948 ###Cuantil del 95% para la estad?stica cusum
-#n=(1/2)*(N-k)-1 # Para buscar en la tabla de CUSUMQ. k es el número de parametros del modelo
-co=0.10558####Valor del cuantil aproximado para cusumsq para n/2
+#n=((1/2)*(N-k))-1 # Para buscar en la tabla de CUSUMQ. k es el número de parametros del modelo
+co=0.10169 ####Valor del cuantil aproximado para cusumsq para n/2
 LS=Af*sqrt(N)+2*Af*c(1:length(residuales_modelo_ini))/sqrt(N)
 LI=-LS
 LQS=co+(1:length(residuales_modelo_ini))/N
@@ -283,7 +258,7 @@ Teniendo los parametros para el modelo ya ajustados, se procede a probar otras a
 Modelamiento del ciclo para la serie original.
 ```{r ciclo unicamente, echo=FALSE}
 ajuste <- lluvia.tsb%>%model(
-  `FourierK=1`=ARIMA(Valor~fourier(K=1)+pdq(0,0,0)+PDQ(0,0,0)),
+  `FourierK=1`=ARIMA(Valor~fourier(K=1)+pdq(0,0,0)+PDQ(0,0,0), ic = c("aicc", "aic", "bic")),
   `FourierK=2`=ARIMA(Valor~fourier(K=2)+pdq(0,0,0)+PDQ(0,0,0)),
   `FourierK=3`=ARIMA(Valor~fourier(K=3)+pdq(0,0,0)+PDQ(0,0,0)),
   `Dummy`=ARIMA(Valor~season()+pdq(3,0,2)+PDQ(0,0,0))                              )
@@ -308,4 +283,38 @@ ajuste %>%
   ) +
   labs(title= "Precipitacion promedio mensual",
        y="PM")
+```
+  
+Pronostico con suavizamiento exponencial
+```{r Suavizamiento exponencial, echo=FALSE}
+tsibble_lluvia.ts=as_tsibble(lluvia.ts)
+HWAP=stats::HoltWinters(lluvia.ts,seasonal="additive") ##Puede establecer beta=F y/0 gamma=F, además el objeto debe ser de clase ts.
+HWAP_1=forecast::hw(lluvia.ts,seasonal="additive",damped=TRUE)  ###También se puede usar holt
+
+plot(HWAP)
+plot(HWAP_1)
+
+ajustados=fitted(HWAP)
+plot(ajustados)
+#ajustados
+HWAP
+#####
+summary(HWAP_1)
+####
+predictionHWAP_1=forecast::forecast(HWAP,h=12,level =0.95,lambda = 0)
+predictionHWAP_1
+plot(predictionHWAP_1)
+predictionHWAP_2=predict(HWAP,n.ahead = 12, prediction.interval = T, level = 0.95)
+predictionHWAP_2=forecast::InvBoxCox(predictionHWAP_2,lambda=0)
+predictionHWAP_2
+
+####Usando objeto tsibble con ETS de fable, "A":additive "M": multiplicative, "N":nada, "Ad" "Md" damped. Note que hay algunos parámetros que se pueden establecer en cero
+ajustepass=tsibble_lluvia.ts%>%
+  model(ETS(value~ error("A")+trend("A")+season("A")))
+
+pronostico=ajustepass%>%
+  fabletools::forecast(h=24)
+pronostico
+
+pronostico%>%autoplot(tsibble_lluvia.ts)+geom_line(aes(y=.fitted),col="#D55E00",data=augment(ajustepass))+labs(y=" ",title="Pronostico u ajustados")+guides(colour="none")
 ```
