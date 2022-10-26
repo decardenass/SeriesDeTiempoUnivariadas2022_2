@@ -17,40 +17,37 @@ library(readr)
 ```
 
 Carga de datos desde repositorio
-```{r}
-# Datos acciones Bancolombia DIARIAS (01-01-2017 al 31-12-2021)
+```{r Importar serie}
+# Datos acciones Bancolombia DIARIAS (02-01-2014 al 31-12-2019)
 url_1 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Bancolombia_2014_2019.csv'
-
-# Datos precipitación MENSUALES (01-2000 al 08-2022)
-#url_2 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Datos%20precipitaci%C3%B3n%20mensual.csv'
-
 banco = read.csv(url_1, sep=";")
-#df_2 = read.csv(url_2, sep=";")
 ```
 
 Ajuste de fecha
-```{r}
+```{r ajuste de fecha}
 banco$Fecha = rev(as.Date(banco$Fecha))
-#df_2$Fecha = as.Date(df_2$Fecha)
 ```
 
 ## Serie de tiempo 1 ----- Acciones Bancolombia -----
-```{r}
+```{r Creación de serie de tiempo}
 library(xts)
 library(TSstudio)
 library(modeltime)
 library(tsibble)
 library(tidymodels)
+library(quantmod)
+
+nombres = c("Ultimo")
+#banco.ts = ts(rev(banco$`Último`), start=c(2014, 01, 02),frequency = 244.5)
 banco.ts.xts= xts(x=rev(banco$Último), order.by = banco$Fecha)
-ts_info(banco.ts.xts)
-frequency(banco.ts.xts)
+names(banco.ts.xts) = nombres
+class(banco.ts.xts)
 plot(banco.ts.xts, main = "Precio al cierre de acciones Bancolombia diario", xlab = "Tiempo", ylab = "Precio")
 ```
 
 Diagrama de autocorrelación acciones Bancolombia
 ```{r autocorrelación acciones Bancolombia}
 ## ----- Diagrama de autocorrelación acciones Bancolombia ----- ###
-
 acf(banco['Último'], lag.max = NULL,
     type = "correlation",
     plot = TRUE,
@@ -61,36 +58,50 @@ acf(banco['Último'], lag.max = NULL,
 Diagrama de autocorrelación parcial acciones Bancolombia
 ```{r autocorrelación parcial acciones Bancolombia}
 ## ----- Diagrama de autocorrelación parcial acciones Bancolombia ----- ###
-
 pacf(banco['Último'], lag.max = NULL,
     plot = TRUE,
     na.action = na.fail,
     main = "Autocorrelación parcial acciones Bancolombia")
+
 ```
+Ajustar varianza marginal 
 
+```{r Ajuste de Varianza Marginal}
+library(timetk)
+library(forecast)
+library(tsibble)
+lambda= auto_lambda(
+  banco.ts.xts,
+  method = "guerrero",
+  lambda_lower = 0,
+  lambda_upper = 2
+)
+lambda #0.178741
 
+banco_boxcox.xts = timetk::box_cox_vec(banco.ts.xts,lambda = lambda,silent = F) 
+par(mfrow=c(1,2))
+plot(banco.ts.xts, main = "varianza marginal sin ajustar", xlab = "Tiempo", ylab = "Precio")
+plot(timetk::box_cox_vec(banco.ts.xts,lambda = lambda,silent = F),main = "varianza marginal ajustada", xlab = "Tiempo", ylab = "Precio")
 
-
-Regresión para determinar tendencia lineal de acciones Bancolombia
-```{r}
-summary(fit_banco <- lm(banco.ts.xts~time(banco.ts.xts), na.action=NULL))
+forecast::BoxCox.lambda(timetk::box_cox_vec(banco.ts.xts,
+                        lambda = lambda,silent = F), 
+                        method = "guerrero", lower = -1, upper = 2) #1.012277 Indica que la varianza marginal ha sido estabilizada
+ 
+#También se puede dejar box_cox_vec(banco.ts, lambda = "auto", silent = FALSE) y obtendremos el mismo resultado
 ```
-
-Gráfico con recta de tendencia acciones Bancolombia
-```{r}
-# Gráfico con recta de tendencia
-plot(banco.ts.xts, ylab="Precio accion") 
-abline(fit_banco,col = "red") # Se añade la recta ajusta
+Diferenciación para eliminar la tendencia 
+```{r diferenciación}
+diff_banco = diff(banco.ts.xts)
+plot(diff_banco,main="Serie Diferenciada", ylab='')
+diff_banco_boxcox = diff(banco_boxcox.xts)
+plot(diff_banco_boxcox,main="Serie Diferenciada", ylab='')
 ```
-
-Gráfico con tendencia lineal eliminada de acciones Bancolombia
+Se ajusta una regresión para verificar qué tanta variabilidad es explicada con un modelo lineal. 
 ```{r}
-###Eliminamos la tendencia con la predicción la recta
-ElimiTendbanco.ts=banco.ts.xts-predict(fit_banco)
-plot(ElimiTendbanco.ts, ylab="Precio accion", main="Serie Bancolombia Sin tendencia")
+summary(fit_banco.xts <- lm(banco_boxcox.xts~time(banco_boxcox.xts), na.action=NULL))
 ```
-Se ajusta una tendencia que, visualmente, no es lineal. Se puede decir, entonces, que la tendencia es de tipo estocástica
-```{r}
+Como $R^2=0.6531$ vemos que el modelo lineal no explica la variabilidad completamente; por tanto, se ajusta una tendencia que, visualmente, no es lineal. Se puede decir, entonces, que la tendencia es de tipo estocástica. Usando vec_smooth (suavizamiento Loess) procedemos a detectarla y, después, a eliminarla a través de una resta con el valor inicial.
+```{r Tendencia no Lineal}
 library(TSstudio)
 library(tidyverse)
 library(lubridate)
@@ -99,8 +110,9 @@ library(tsibble)
 
 interactive <- FALSE
 #Para validar si la tendencia es lineal o no
-indice_cierre = rev(banco$Fecha)
-df_cierre = data.frame(Fecha=indice_cierre,Precio_cierre=as.matrix(banco$Último))
+indice_cierre = rev(date(banco_boxcox.xts))
+Precio_cierre=as.matrix(banco_boxcox.xts$Ultimo)
+df_cierre = data.frame(Fecha=indice_cierre,Precio_cierre=as.matrix(banco_boxcox.xts$Ultimo))
 str(df_cierre)
 tibble_cierre = tibble(df_cierre)
 duplicates(tibble_cierre, key = NULL, index = Fecha)##NO hay registros duplicados
@@ -108,58 +120,284 @@ duplicates(tibble_cierre, key = NULL, index = Fecha)##NO hay registros duplicado
 print(duplicates(tibble_cierre, key = NULL, index=Fecha))
 tsibble_cierre=tsibble(tibble_cierre,index=Fecha)
 
-tsibble_cierre
-
-tsibble_cierre%>%timetk::plot_time_series(Fecha, Precio_cierre, 
-                   .interactive = interactive,
-                   .plotly_slider = TRUE)
+Precio_cierre_ajus=smooth_vec(Precio_cierre,span = 0.75, degree = 2)
 
 tibble_cierre%>%mutate(Precio_cierre_ajus=smooth_vec(Precio_cierre,span = 0.75, degree = 2))
 
 tsibble_cierre%>%mutate(Precio_cierre_ajus=smooth_vec(Precio_cierre,span = 0.75, degree = 2))%>%
-  ggplot(aes(rev(Fecha), Precio_cierre)) +
-    geom_line() +
+  ggplot(aes(Fecha, Precio_cierre)) + geom_line() +
     geom_line(aes(y = Precio_cierre_ajus), color = "red")
+
+tsibble_cierre%>%mutate(Precio_cierre_ajus=smooth_vec(Precio_cierre,span = 0.75, degree = 2))%>%
+  ggplot(aes(Fecha, y=Precio_cierre-Precio_cierre_ajus)) + geom_line()
+
+no_tendendia = Precio_cierre-Precio_cierre_ajus
+
+tsibble_cierre=tsibble(tibble_cierre,index=Fecha,no_tendendia)
+tsibble_cierre
 ```
-Alternativa usando Descomposición por medio de filtros móviles
-```{r Decompose, eval=FALSE}
-cierre_decomp= decompose(banco.ts)
-plot(cierre_decomp)
-cierre_decomp$trend
+
+Mapa de calor para validar componente estacional acciones Bancolombia
+```{r Mapa de Calor}
+library(forecast)
+library(ggplot2)
+library(tidyquant)
+library(plyr)
+library(plotly)
+
+df <- as.data.frame(tsibble_cierre)
+df$weekday = as.POSIXlt(tsibble_cierre$Fecha)$wday #finding the day no. of the week
+df$weekdayf<-factor(df$weekday,levels=rev(1:7),labels=rev(c("Mon","Tue","Wed","Thu","Fri", "Sat", "Sun")),ordered=TRUE) # converting the day no. to factor
+
+df$monthf<-factor(month(tsibble_cierre$Fecha),levels=as.character(1:12),labels=c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"),ordered=TRUE) # finding the month
+
+df$yearmonth<- factor(as.yearmon(tsibble_cierre$Fecha)) # finding the year and the month from the date. Eg: Nov 2018
+
+df$week <- as.numeric(format(tsibble_cierre$Fecha,"%W")) # finding the week of the year for each date
+
+df<-ddply(df,.(yearmonth),transform,monthweek=1+week-min(week)) # normalizing the week to start at 1 for every month
+
+p <- ggplot(df, aes(monthweek, weekdayf, fill = tsibble_cierre$`<dbl[,1]>`)) + 
+    geom_tile(colour = "white") + facet_grid(year(tsibble_cierre$Fecha)~monthf) + scale_fill_gradient(low="red", high="green") +  xlab("Semana del mes") + ylab("") + ggtitle("Mapa de calor de cierre de bolsa") + labs(fill = "Precio")
+
+p
 
 ```
+Vemos entonces que no hay ningún patrón en el mapa de calor; por lo que podemos determinar que no hay presencia de estacionalidad en nuestra serie, después de ajustar la varianza marginal y la tendencia.
 
-Diferenciacion de la serie
-```{r Diferenciacion de la serie, eval=FALSE}
-#ndiffs(banco.ts) # Indica el numero de diferenciaciones requeridas para volver estacionaria la serie
-dx=diff(banco.ts.xts) #Serie diferenciada
-par(mar = c(2,2,2,2))
-fit = lm(banco.ts.xts~time(banco.ts.xts), na.action=NULL) # Regresión sobre el tiempo
-par(mfrow=c(2,1))
-plot(resid(fit), type="l", main="Serie sin tendencia lineal") 
-plot(dx, type="l", main="Primera diferencia") 
+Incluso, con el periodograma
+```{r}
+spectrum(no_tendendia,log='no')
+spectrum(no_tendendia,log='no',span=2)
 ```
+
+```{r Suavizamiento Exponencial}
+library(dplyr)
+library(fpp3)
+library(fpp)
+library(fable)
+library(feasts)
+library(tidyverse)
+library(fpp2) 
+
+banco.train <- window(banco_boxcox.xts,
+                     end = as.Date("2019-05-27"))
+banco.test <- window(banco_boxcox.xts, 
+                    start = as.Date("2019-05-28"))
+holt.banco <- holt(banco.train,
+                  h = 100)
+holt.banco
+autoplot(holt.banco)
+
+
+banco.train_ets <- window(banco_boxcox.xts,
+                     end = as.Date("2019-05-27"))
+banco.test_ets <- window(banco_boxcox.xts, 
+                    start = as.Date("2019-05-28"))
+
+banco_ets <- ets(banco.train_ets,
+                  model = "ZAN", additive.only = TRUE,na.action = na.fail)
+banco_ets
+
+autoplot(forecast.ets(banco_ets,h = 100))
+banco_ets
+```
+
 
 ```{r Descomposición ETS}
-splits_banco_tbl=timetk::time_series_split(banco,date_var=Fecha,assess = 15,cumulative = TRUE)
-splits_banco_tbl%>% tk_time_series_cv_plan()%>%plot_time_series_cv_plan(Fecha,rev(Último))
+tibble_cierre<-tibble_cierre%>%mutate(cierre_sin_boxcox=inv_box_cox(tibble_cierre$Ultimo, lambda = 0.178741))
+attach(tibble_cierre)
+tibble_cierre
 
-ets_banco<-modeltime::exp_smoothing(
+splits_tibble_cierre =timetk::time_series_split(tibble_cierre,date_var=Fecha,assess = 146,cumulative = TRUE)
+splits_tibble_cierre%>% tk_time_series_cv_plan()%>%
+  plot_time_series_cv_plan(Fecha,rev(Ultimo))
+
+ets_tibble_cierre<-modeltime::exp_smoothing(
   error="additive",
   trend="additive",
   season="none"
 )%>%
   set_engine("ets")%>%
-  fit(rev(Último) ~ Fecha,data=training(splits_banco_tbl))
+  fit(rev(Ultimo) ~ Fecha ,data=training(splits_tibble_cierre))
  # Modeltime ----
- 
-modeltime_table(ets_banco) %>%
-  modeltime_calibrate(testing(splits_banco_tbl))%>%
+
+ ##Se crea un objeto de pronóstico con los valores sobre el conjunto de prueba.
+
+modeltime_table(ets_tibble_cierre) %>%
+  modeltime_calibrate(new_data=testing(splits_tibble_cierre))%>%
   modeltime_forecast(
-    new_data = testing(splits_banco_tbl),
-    actual_data = banco
+    new_data = testing(splits_tibble_cierre),
+    actual_data = tibble_cierre
   )%>%
   plot_modeltime_forecast(.conf_interval_fill = "lightblue")
 
 ```
+No se ve muy bueno que digamos, pero eso se valida con el Rolling
+
+```{r Rolling}
+library(forecast)
+library(greybox)
+ntrain=trunc(length(banco_boxcox.xts)*0.85)
+train=window(banco_boxcox.xts,end=time(banco_boxcox.xts)[ntrain])
+test=window(banco_boxcox.xts,start=time(banco_boxcox.xts)[ntrain]+1/244.5)
+ets_train=(ets(train,model = 'AAN'))
+ets_train$par[1]
+ets_train$par[2]
+forecast.ets(ets_train)
+h=3
+ourCallETS <- "forecast::forecast(forecast::ets(banco_boxcox.xts,model = 'AAN',alpha=ets_train$par[1],beta=ets_train$par[2]), level = 95)"
+ourValueETS <- c("mean","lower","upper")
+origins=22   ##número de rolling windows
+Valoresretornados1 <- ro(banco_boxcox.xts, h=h, origins=origins, call=ourCallETS,
+                         value=ourValueETS,ci=FALSE,co=FALSE)
+## Permiten verificar los verdaderos valores h-pasos adelante. 
+Valoresretornados1$holdout
+sqrt(apply((Valoresretornados1$holdout -Valoresretornados1$mean[1:3,])^2,1,mean,na.rm=TRUE)) ### Se calcula la raíz del error cudrático medio de predicción
+
+apply(abs(Valoresretornados1$holdout - Valoresretornados1$mean[1:3,]),1,mean,na.rm=TRUE) / mean(Valoresretornados1$actuals) ### Error medio absoluto escalado
+```
+
+A continuación vamos a encontrar los p y q adecuados a través de un modelo ARMA.
+```{r ARMA con serie con diferenciacion}
+library(TSA)
+library(lmtest)
+library(forecast)
+library(tseries)
+
+plot(diff_banco_boxcox)
+acf(diff_banco_boxcox[-1,],ci.type='ma')##Rezago máximo q=15
+acf(diff_banco_boxcox[-1,],type='partial')##Rezago máximo p=15
+
+#AR puro inicial para verificar coeficientes significativos. En este caso, vemos a 1, 7 y 15
+ARPURO_fixed1=forecast::Arima(banco_boxcox.xts,order=c(15,1,0),
+                              include.mean = FALSE,method = c("CSS-ML"))
+coeftest(ARPURO_fixed1)
+summary(ARPURO_fixed1)
+
+#AR puro ajustado para 1, 7 y 15
+ARPURO_fixed1=forecast::Arima(banco_boxcox.xts,order=c(15,1,0), fixed =c(NA,0,0,0,0,0,NA,0,0,0,0,0,0,0,NA),include.mean = FALSE,method = c("CSS-ML"))
+coeftest(ARPURO_fixed1)
+summary(ARPURO_fixed1)
+
+#MA puro inicial para verificar coeficientes significativos. En este caso, vemos a 1, 7 y 15
+MAPURO_fixed1=forecast::Arima(banco_boxcox.xts,order=c(0,1,15),method = c("CSS-ML"),
+                              include.mean = FALSE)
+coeftest(MAPURO_fixed1)
+summary(MAPURO_fixed1)
+
+#MA puro ajustado para 1, 7 y 15
+MAPURO_fixed1=forecast::Arima(banco_boxcox.xts,order=c(0,1,15),method = c("CSS-ML"),fixed =c(NA,0,0,0,0,0,NA,0,0,0,0,0,0,0,NA),include.mean = FALSE)
+coeftest(MAPURO_fixed1)
+summary(MAPURO_fixed1)
+
+#ARMA mixto con p=15 y q=15. Vemos que solo AR13 y MA13 son significativos
+ARMAmixto_fixed1=forecast::Arima(banco_boxcox.xts,order=c(15,1,15),include.mean = FALSE,method = c("CSS-ML")) 
+coeftest(ARMAmixto_fixed1)
+summary(ARMAmixto_fixed1)
+
+#ARMA mixto ajustado para AR13 y MA13
+ARMAmixto_fixed1=forecast::Arima(banco_boxcox.xts,order=c(15,1,15),
+                                 fixed=c(rep(0,12),NA,rep(0,14),NA,0,0),
+                                 include.mean = FALSE,method = c("CSS-ML"))
+coeftest(ARMAmixto_fixed1)
+summary(ARMAmixto_fixed1)
+
+#Sin embargo, vemos con los MA y AR puros que hay tres coeficientes significativos para cada uno. 
+#Por tanto, planteamos un modelo con base es eso.
+ARMAmixto_fixed1=forecast::Arima(banco_boxcox.xts,order=c(3,1,3),
+                                 include.mean = FALSE,method = c("CSS-ML"))
+coeftest(ARMAmixto_fixed1)
+summary(ARMAmixto_fixed1)
+
+#Además, podemos apreciar que el siguiente comando es equivalente a ARPURO_fixed1 es
+# ARPURO_fixed=forecast::Arima(diff_banco_boxcox,order=c(15,0,0),
+#                               include.mean = FALSE,method = c("CSS-ML"))
+#donde diff_banco_boxcox es la serie diferenciada previamente.
+```
+
+```{r pronosticos con Forecast}
+PronosticosARPURO50=forecast(ARPURO_fixed1,h=5,level=0.95) 
+plot(PronosticosARPURO50)
+PronosticosMAPURO50=forecast(MAPURO_fixed1,h=50,level=0.95) 
+plot(PronosticosMAPURO50)
+PronosticosARMAmixto50=forecast(ARMAmixto_fixed1,h=50,level=0.95) 
+plot(PronosticosARMAmixto50)
+```
+
+```{r Análisis de Residuales Para el modelo AR puro Serie Bancolombia}
+# An?lisis de residuales
+residuales=ARPURO_fixed1$residuals
+plot(residuales)
+acf(residuales)
+acf(residuales^2)
+pacf(residuales)
+#Test de normalidad
+jarque.bera.test(residuales)
+#Test de autocorrelaci?n
+length(residuales)/4
+sqrt(length(residuales))
+Box.test(residuales, lag =20 , type = "Ljung-Box", fitdf = 2)#No puedo Rechazar la hipótesis de no autocorrelación!
+
+
+###Estad?sticas CUSUM
+res=residuales
+cum=cumsum(res)/sd(res)
+N=length(res)
+cumq=cumsum(res^2)/sum(res^2)
+Af=0.948 ###Cuantil del 95% para la estad?stica cusum
+co=0.12531####Valor del cuantil aproximado para cusumsq para n/2
+LS=Af*sqrt(N)+2*Af*c(1:length(res))/sqrt(N)
+LI=-LS
+LQS=co+(1:length(res))/N
+LQI=-co+(1:length(res))/N
+plot(cum,type="l",ylim=c(min(LI),max(LS)),xlab="t",ylab="",main="CUSUM")
+lines(LS,type="S",col="red")
+lines(LI,type="S",col="red")
+#CUSUMSQ
+plot(cumq,type="l",xlab="t",ylab="",main="CUSUMSQ")                      
+lines(LQS,type="S",col="red")                                                                           
+lines(LQI,type="S",col="red")
+```
+
+```{r Rolling}
+# h=1
+# lserie=length(banco_boxcox.xts)
+# ntrain=trunc(length(banco_boxcox.xts)*0.8)
+# ntrain
+# time(banco_boxcox.xts)
+# time(banco_boxcox.xts)[ntrain]###Me entrega la ultima fecha de la posici?n ntrain
+# train=window(banco_boxcox.xts,end=c(as.Date(2018,10,18)))
+# test=window(banco_boxcox.xts,start=c(as.Date(2018,10,19)))
+# length(train)
+# ntest=length(test)
+# ntest
+# fcmat=matrix(0,nrow=ntest,ncol=h)
+# index=data.frame(Fecha=c(as.character.Date(date(banco_boxcox.xts))))
+# class(index)
+# tsibble_nuevo = as_tsibble(as_tibble(banco_boxcox.xts),index = date(tibble_cierre$Fecha))
+# for(i in 1:ntest)
+# {
+#   x=window(tsibble_nuevo,end=c(time(banco_boxcox.xts)[ntrain])+(i-1)/244.5)
+#   print(length(x))
+#   refit=forecast::Arima(banco_boxcox.xts,order=c(15,1,0), fixed =c(NA,0,0,0,0,0,NA,0,0,0,0,0,0,0,NA),include.mean = FALSE,method = c("CSS-ML"))
+#   fcmat[i,]=test[i]-forecast(refit,h=h)$mean
+# }
+# fcmat
+# ECM=mean(fcmat^2)
+# ECM
+
+##Falta elevar al cudrado y hacer le promedio.
+```
+
+
+
+
+
+
+
+
+
+
+
 
