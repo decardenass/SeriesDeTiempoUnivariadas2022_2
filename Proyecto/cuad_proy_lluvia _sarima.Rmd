@@ -224,12 +224,15 @@ residuales_modelo_ini <- modelo_ini$residuals
 plot(residuales_modelo_ini)
 acf(residuales_modelo_ini,lag.max = 24)
 pacf(residuales_modelo_ini,lag.max = 24)
+
 #Test de autocorrelacion
 Box.test(residuales_modelo_ini, lag = (length(residuales_modelo_ini)/4), type = "Ljung-Box", fitdf = p_min+q_min)
+
 ######Análisis de Outliers
 #Test de normalidad
 jarque.bera.test(residuales_modelo_ini)
-#Chequeo resumen
+
+#Chequeo resumen residuales
 checkresiduals(modelo_ini)
 
 ###Estaditicas CUSUM
@@ -248,17 +251,23 @@ LQI=-co+(1:length(residuales_modelo_ini))/N
 plot(cum,type="l",ylim=c(min(LI),max(LS)),xlab="t",ylab="",main="CUSUM")
 lines(LS,type="S",col="red")
 lines(LI,type="S",col="red")
+
 #CUSUM Square
 plot(cumq,type="l",xlab="t",ylab="",main="CUSUMSQ")                      
-lines(LQS,type="S",col="red")                                                                           
+lines(LQS,type="S",col="red")                                                                         
 lines(LQI,type="S",col="red")
+
+### Pronostico del modelo
+pronostico_modelo_ini = forecast(modelo_ini)
+autoplot(pronostico_modelo_ini)
 ```
   
 Teniendo los parametros para el modelo ya ajustados, se procede a probar otras alternativas.
+  
 Modelamiento del ciclo para la serie original.
 ```{r ciclo unicamente, echo=FALSE}
 ajuste <- lluvia.tsb%>%model(
-  `FourierK=1`=ARIMA(Valor~fourier(K=1)+pdq(0,0,0)+PDQ(0,0,0), ic = c("aicc", "aic", "bic")),
+  `FourierK=1`=ARIMA(Valor~fourier(K=1)+pdq(0,0,0)+PDQ(0,0,0)),
   `FourierK=2`=ARIMA(Valor~fourier(K=2)+pdq(0,0,0)+PDQ(0,0,0)),
   `FourierK=3`=ARIMA(Valor~fourier(K=3)+pdq(0,0,0)+PDQ(0,0,0)),
   `Dummy`=ARIMA(Valor~season()+pdq(3,0,2)+PDQ(0,0,0))                              )
@@ -284,7 +293,44 @@ ajuste %>%
   labs(title= "Precipitacion promedio mensual",
        y="PM")
 ```
-  
+De los modelos anteriores los que parecen tener mejores resultados son la regresión con variables dummy y Fourier con k=3. Se procede a revisar los residuales de dichos modelos.
+```{r Chequeo residuales FourierK3 y dummy}
+##Chequeo significancia Fourier k=3
+ajuste %>%
+  select(`FourierK=3`)%>%report()
+
+ajuste %>%
+     select(`FourierK=3`)%>%coef()
+
+###Residuales
+ajuste %>%
+  select(`FourierK=3`) %>%
+  gg_tsresiduals()
+####Saca algunas carcaterística para comprobar el ajuste del modelo
+
+augment_ajuste_tb<-ajuste %>%
+    select(`FourierK=3`)%>%augment()
+
+
+##Chequeo significancia Dummy
+ajuste %>%
+  select(Dummy)%>%report()
+
+ajuste %>%
+     select(Dummy)%>%coef()
+
+###Residuales
+ajuste %>%
+  select(Dummy) %>%
+  gg_tsresiduals()
+####Saca algunas carcaterística para comprobar el ajuste del modelo
+
+augment_ajuste_tb<-ajuste %>%
+    select(Dummy)%>%augment()
+
+```
+
+
 Pronostico con suavizamiento exponencial
 ```{r Suavizamiento exponencial, echo=FALSE}
 tsibble_lluvia.ts=as_tsibble(lluvia.ts)
@@ -313,8 +359,56 @@ ajustepass=tsibble_lluvia.ts%>%
   model(ETS(value~ error("A")+trend("A")+season("A")))
 
 pronostico=ajustepass%>%
-  fabletools::forecast(h=24)
+  fabletools::forecast(h=12)
 pronostico
 
 pronostico%>%autoplot(tsibble_lluvia.ts)+geom_line(aes(y=.fitted),col="#D55E00",data=augment(ajustepass))+labs(y=" ",title="Pronostico u ajustados")+guides(colour="none")
+```
+  
+Ajuste usando STL
+```{r Ajuste usando STL de feasts y model, echo=FALSE}
+###Ajuste usando STL de feasts y model
+
+fit_lluvia.tsb =lluvia.tsb%>%
+  model(stlf=decomposition_model(STL(Valor ~ trend(window = 13) +
+                   season(window = "periodic"),
+    robust = TRUE),NAIVE(season_adjust)))
+
+fit_lluvia.tsb%>%fabletools::forecast()%>%autoplot(lluvia.tsb)+ labs(y=" a",title=" b")  
+
+Pronostico_stl<-fit_lluvia.tsb%>%fabletools::forecast()  
+Pronostico_stl
+###Por defecto hace el pronóstico para el doble del ciclo estacional
+```
+  
+Modelo automático sin parámetros especificados y residuales
+```{r Modelo automatico, echo=FALSE}
+modelo_auto = auto.arima(lluvia.ts)
+coeftest(modelo_auto)
+summary(modelo_auto)
+checkresiduals(modelo_auto)
+autoplot(forecast(modelo_auto))
+```
+  
+```{r ets modeltime preparacion, echo=FALSE}
+
+library(dplyr)
+library(parsnip)
+library(rsample)
+library(timetk)
+library(modeltime)
+library(tsibble)
+library(tidymodels)
+###Creación del objeto sibble
+#lluvia.tb<-as_tibble(as_tsibble(lAirPass))
+#lluvia.tb$index=as.Date(lluvia.tb$index)
+#lluvia.tb=rename(lluvia.tb,Fecha=index,lluvia.ts=value)
+#lluvia.tb<-lluvia.tb%>%mutate(Airpass=exp(lluvia.ts))
+
+lluvia.tb
+###División en entrenamiento y prueba
+splits_lluvia.tb=timetk::time_series_split(lluvia.tb,date_var=Fecha,assess = 12,cumulative = TRUE)
+splits_lluvia.tb%>% tk_time_series_cv_plan()%>%
+  plot_time_series_cv_plan(Fecha,lluvia.ts)
+splits_lluvia.tb
 ```
