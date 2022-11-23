@@ -1,0 +1,162 @@
+---
+title: "ARCH y GARCH en R"
+output: 
+      github_document: default
+      html_notebook: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+  
+
+```{r Ajuste directorio de trabajo , include=FALSE}
+# Conocer y ajustar directorios de trabajo
+getwd()
+#setwd("C:/Absolutely_All/Work_Folder")
+#getwd()
+```
+  
+```{r Borrado elementos espacio de trabajo , include=FALSE}
+# Borrar los objetos en el espacio de trabajo
+rm(list=ls())
+#ls()
+```
+  
+```{r Librerias, include=FALSE}
+# Se cargan la librerias a utilizar
+library(readr)
+library(fGarch)
+library(aTSA)
+library(forecast)
+library(xts)
+library(fImport)
+library(tseries)
+library(TSstudio)
+library(modeltime)
+library(tsibble)
+library(tidymodels)
+library(quantmod)
+library(timetk)
+#library(VGAM)
+#library(car)
+```  
+
+## Modelos ARCH y GARCH
+
+Vamos a trabajar los modelos ARCH y GARCH. Sean $\{r_t\}$ la serie de retornos tal que $$r_{t}=\mu_{t}+a_{t}$$
+
+donde 	$$\mu_{t}=E[r_{t}|F_{t-1}],\  \  \  \sigma^{2}_{t}=Var[r_{t}|F_{t-1}]=E[(r_{t}-\mu_{t})^{2}|F_{t-1}]=Var(a_{t}|F_{t-1})$$
+
+donde $\mu_t$ es un proceso estocástico estacionario que puede ser modelado mediante un proceso ARMA(p,q), y 
+	$$a_{t}=\sigma_{t}\varepsilon_{t}\  \  \  \  \  \sigma^{2}_{t}=\alpha_{0}+\alpha_{1}a_{t-1}^{2}+\cdots+\alpha_{t-m}a_{t-m}^{2}.$$ 
+
+
+## Simulación
+
+Vamos a plantear un un ejemplo simulado. Vamos a simular un modelo ARCH(2).
+$$a_{t}=\sigma_{t}\varepsilon_{t}\  \  \  \  \  \sigma^{2}_{t}=\alpha_{0}+\alpha_{1}a_{t-1}^{2}+\alpha_{t-2}a_{t-2}^{2}.$$ 
+con $\alpha_1=0.2$, $\alpha_2=0.4$ y $\alpha_0=0$
+```{r Simulacion1 y descriptiva, eval=FALSE}
+set.seed(12)
+spec = garchSpec(model = list(alpha = c(0.2, 0.4), beta = 0))
+ARCH2=garchSim(spec, n = 500)
+plot(ARCH2)
+acf(ARCH2)
+acf(ARCH2,ci.type="ma")
+pacf(ARCH2)
+acf(ARCH2^2)
+pacf(ARCH2^2)
+Box.test(ARCH2^2,lag=20,type='Ljung-Box')
+hist(ARCH2)
+
+```
+
+```{r ajuste modelo ARMA, eval=FALSE}
+salidaarima=arima(ARCH2,order = c(3,0,0),include.mean = FALSE,fixed=c(NA,NA,NA))
+library(lmtest)
+coeftest(salidaarima)
+salidaarima
+####Pruebas Portmanteau#####
+##Efectos ARCH
+arch.test(salidaarima)
+resarma=residuals(salidaarima)^2
+
+pacf(resarma,lag.max = 20)
+######Ajuste de la serie
+m=fGarch::garchFit(formula=~arma(0,0)+garch(2,0),data=ARCH2$garch,trace=F,include.mean = FALSE)
+m
+```
+  
+  
+  
+## Datos Bancolombia  
+```{r Importacion de datos , include=FALSE}
+# Datos acciones Bancolombia DIARIAS (02-01-2014 al 31-12-2019)
+url_1 = 'https://raw.githubusercontent.com/decardenass/SeriesDeTiempoUnivariadas2022_2/main/Proyecto/Datos/Bancolombia_2014_2019.csv'
+banco= read.csv(url_1, sep=";")
+banco = filter(banco, banco$Fecha>=as.Date("2016-01-02"))
+#names(banco) = c("Fecha", "Ultimo","Apertura","Maximo","Minimo","Vol.","X..var")
+banco$Fecha = rev(as.Date(banco$Fecha))
+```
+  
+```{r}
+nombres = c("Último")
+banco.ts.xts= xts(x=rev(banco$Último), order.by = banco$Fecha)
+names(banco.ts.xts)=nombres
+plot(banco.ts.xts, main = "Precio al cierre de acciones Bancolombia diario", xlab = "Tiempo", ylab = "Precio")
+```
+
+
+
+## Ejemplo real S&P 500
+
+```{r Bancolombia retornos}
+#sp5=as.ts(scan(file="SP500.txt"))
+sp5=returns(banco.ts.xts) #genera los retornos logaritmicos
+sp5=na.omit(sp5)
+sp5=as.ts(sp5)
+plot(sp5)
+acf(sp5)
+acf(sp5,ci.type="ma") 
+pacf(sp5)
+hist(sp5)
+acf(sp5^2)
+pacf(sp5^2)
+```
+
+```{r SandP500_1 efectos ARCH}
+lmtest::coeftest(auto.arima(sp5)) ####Se podría ajustar un ARMA(2,3) con constante
+modeloarima=arima(sp5,order = c(1,0,0),include.mean = TRUE)
+lmtest::coeftest(modeloarima)
+acf(modeloarima$residual)
+pacf(modeloarima$residual)
+acf(modeloarima$residual^2)
+pacf(modeloarima$residual^2)
+arch.test(modeloarima)
+
+
+
+```
+
+```{r SanP500 ajuste}
+modelosp5_1=garchFit(~arma(1,0)+garch(9,0),data=sp5,trace=F,include.mean=T)
+summary(modelosp5_1)
+
+#plot(modelosp5_1)  ###Gráfico de volatilidad
+prediccion=predict(modelosp5_1,n.ahead=10)
+
+library(rugarch)
+spec1=ugarchspec(variance.model=list(model="sGARCH",garchOrder = c(9,0)),
+                 mean.model=list(armaOrder=c(1,0),include.mean = TRUE),distribution.model = "norm")
+
+#,fixed.pars = list(ar1=NA,ar2=NA,ar3=NA,ar4=NA,
+#               alpha1=NA)
+fit1=ugarchfit(data=sp5,spec=spec1)
+show(fit1)
+plot(fit1)
+forc1 = ugarchforecast(fit1, n.ahead = 20)  ###Predicción de la varianza condicional
+plot(forc1)
+```
+
+
